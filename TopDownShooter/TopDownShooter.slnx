@@ -1,0 +1,19 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Development" />
+    <BuildType Name="Release" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/MacaronEngine/">
+    <Project Path="../MacaronEngine/project/externals/DirectXTex/DirectXTex_Desktop_2022_Win10.vcxproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="../MacaronEngine/project/externals/imgui/imgui.vcxproj">
+      <Platform Project="x64" />
+    </Project>
+    <Project Path="../MacaronEngine/project/MacaronEngineLib/MacaronEngineLib.vcxproj" />
+  </Folder>
+  <Project Path="TopDownShooter.vcxproj" />
+</Solution>

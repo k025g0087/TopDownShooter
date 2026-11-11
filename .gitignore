@@ -372,3 +372,5 @@ imgui.ini
 
 # ImGuiのSaveボタンで保存される個人用の設定
 settings.txt
+
+TopDownShooter/resources/shaders/
