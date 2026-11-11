@@ -185,7 +185,8 @@
       <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
     </Manifest>
     <PreBuildEvent>
-      <Command>xcopy /Y /I /E /Q "$(SolutionDir)..\MacaronEngine\project\resources\shaders" "$(ProjectDir)resources\shaders\"</Command>
+      <Command>xcopy /Y /I /E /Q "$(SolutionDir)..\MacaronEngine\project\resources\shaders" "$(ProjectDir)resources\shaders\"
+   xcopy /Y /I /E /Q "$(SolutionDir)..\MacaronEngine\project\resources\engine" "$(ProjectDir)resources\engine\"</Command>
     </PreBuildEvent>
     <PostBuildEvent>
       <Command>   copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll"
@@ -215,7 +216,8 @@
       <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
     </Manifest>
     <PreBuildEvent>
-      <Command>xcopy /Y /I /E /Q "$(SolutionDir)..\MacaronEngine\project\resources\shaders" "$(ProjectDir)resources\shaders\"</Command>
+      <Command>xcopy /Y /I /E /Q "$(SolutionDir)..\MacaronEngine\project\resources\shaders" "$(ProjectDir)resources\shaders\"
+   xcopy /Y /I /E /Q "$(SolutionDir)..\MacaronEngine\project\resources\engine" "$(ProjectDir)resources\engine\"</Command>
     </PreBuildEvent>
     <PostBuildEvent>
       <Command>   copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll"
@@ -248,7 +250,8 @@
       <EnableDpiAwareness>PerMonitorHighDPIAware</EnableDpiAwareness>
     </Manifest>
     <PreBuildEvent>
-      <Command>xcopy /Y /I /E /Q "$(SolutionDir)..\MacaronEngine\project\resources\shaders" "$(ProjectDir)resources\shaders\"</Command>
+      <Command>xcopy /Y /I /E /Q "$(SolutionDir)..\MacaronEngine\project\resources\shaders" "$(ProjectDir)resources\shaders\"
+   xcopy /Y /I /E /Q "$(SolutionDir)..\MacaronEngine\project\resources\engine" "$(ProjectDir)resources\engine\"</Command>
     </PreBuildEvent>
     <PostBuildEvent>
       <Command>   copy "$(WindowsSdkDir)bin\$(TargetPlatformVersion)\x64\dxcompiler.dll" "$(TargetDir)dxcompiler.dll"
