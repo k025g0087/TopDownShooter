@@ -1,0 +1,3 @@
+[submodule "MacaronEngine"]
+	path = MacaronEngine
+	url = https://k025g0087@github.com/k025g0087/MacaronEngine.git
