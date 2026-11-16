@@ -107,6 +107,7 @@ private: // メンバ関数
 	// 指定の部屋へワープする
 	void WarpToRoom(int32_t roomIndex);
 	void UpdateWarpEffect();
+	void UpdateBossIntro();
 	void UpdateWarpPads();
 	// 部屋の中で、ワープの転送陣を置く場所を探す
 	Vector3 FindWarpPadPosition(int32_t roomIndex) const;
@@ -245,6 +246,12 @@ private: // メンバ変数
 		bool shown = false;
 	};
 	std::vector<WarpPad> warpPads;
+	// ボスの登場演出（黒い帯 → ボスが地面から出て吠える → 名前を見せる）
+	float bossIntroTimer = 0.0f;     // 0より大きい間が演出中
+	float bossIntroTime = 0.0f;      // 演出が始まってからの時間
+	float bossIntroFlash = 0.0f;     // 吠えた瞬間の白い光
+	float bossIntroNameAlpha = 0.0f;
+	std::unique_ptr<Sprite> bossIntroName;
 	// ワープの演出（縮んで光になる → 行き先に着いて元に戻る）
 	enum class WarpPhase { kNone, kOut, kIn };
 	WarpPhase warpPhase = WarpPhase::kNone;
@@ -313,6 +320,9 @@ private: // メンバ変数
 	static inline const float kSpawnDelay = 0.6f;         // 扉が閉まってから敵が出てくるまで（秒）
 	static inline const int32_t kEnemiesWithoutSpawnPoint = 5; // ひな形に e がないときの敵の数
 	static inline const int32_t kSwarmGroupSize = 3;           // 群れの敵は何体まとめて出るか
+	static inline const float kBossIntroRiseTime = 1.8f;       // ボスが出てきて吠えるまで（ボス側の登場の長さに合わせる）
+	static inline const float kBossIntroTotalTime = 3.6f;      // 登場演出の全体の長さ（秒）
+	static inline const float kBossIntroBarHeight = 90.0f;     // 上下の黒い帯の高さ
 	static inline const float kWarpOutTime = 0.6f;             // ワープ：縮んで光になるまで（秒）
 	static inline const float kWarpInTime = 0.6f;              // ワープ：着いて元に戻るまで（秒）
 	static inline const float kWarpPadScale = 0.65f;           // ワープの転送陣の大きさ（帰還の陣を1とする）

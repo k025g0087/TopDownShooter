@@ -4,6 +4,7 @@
 #include <random>
 #include "BossBase.h"
 #include "Object3d.h"
+#include "GameSettings.h" // JP（日本語の文字列）
 
 // ドラゴン（神殿の主）
 // 動く → 攻撃（炎のブレス／しっぽのなぎ払い／飛び上がって炎の雨）をくり返す
@@ -35,6 +36,7 @@ public:
 	float GetAreaAttackRadius() const override;
 	bool UsesWallCollision() const override { return height < 0.5f; }
 	const char* GetNameTexture() const override { return kTextureName; }
+	const char* GetEpithet() const override { return JP("炎を統べる古竜"); }
 
 private:
 	enum class State {

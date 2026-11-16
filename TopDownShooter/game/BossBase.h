@@ -63,4 +63,6 @@ public:
 	virtual bool UsesWallCollision() const { return true; }
 	// HPバーに出す名前の画像
 	virtual const char* GetNameTexture() const = 0;
+	// 登場演出で名前の下に出す二つ名（UTF-8。画面の文字画像にある文字だけ使える）
+	virtual const char* GetEpithet() const { return ""; }
 };

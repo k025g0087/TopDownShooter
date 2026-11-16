@@ -316,6 +316,10 @@ void StageScene::BuildFloor()
 		warpPads.push_back(std::move(pad));
 	}
 	warpPhase = WarpPhase::kNone;
+	bossIntroTimer = 0.0f;
+	bossIntroName = std::make_unique<Sprite>();
+	bossIntroName->Initialize(spriteCommon, StageHud::kTextureWhite);
+	bossIntroName->SetColor({ 1.0f, 1.0f, 1.0f, 0.0f });
 	warpFlash = std::make_unique<Sprite>();
 	warpFlash->Initialize(spriteCommon, StageHud::kTextureWhite);
 	warpFlash->SetSize({ static_cast<float>(WinApp::kClientWidth), static_cast<float>(WinApp::kClientHeight) });
@@ -407,6 +411,11 @@ void StageScene::Update()
 	// ワープの演出中：世界を止めて、演出だけ進める
 	if (warpPhase != WarpPhase::kNone) {
 		UpdateWarpEffect();
+		return;
+	}
+	// ボスの登場演出中：世界を止めて、演出だけ進める
+	if (bossIntroTimer > 0.0f && boss) {
+		UpdateBossIntro();
 		return;
 	}
 	// ポーズ中：世界を止めて、ポーズ画面だけ動かす
@@ -834,6 +843,10 @@ void StageScene::UpdateCamera()
 	} else if (Length(playerInput.aim) > 0.0f) {
 		target += Vector3{ playerInput.aim.x, 0.0f, playerInput.aim.y } * (cameraSettings.lookAheadMax * 0.5f);
 	}
+	// ボスの登場演出中は、ボスを見る
+	if (bossIntroTimer > 0.0f && boss) {
+		target = boss->GetPosition();
+	}
 	cameraFocus = Lerp(cameraFocus, target, cameraSettings.follow);
 
 	// 揺れ（だんだん減る）
@@ -1159,8 +1172,71 @@ void StageScene::SpawnBoss(int32_t roomIndex)
 	boss = CreateBoss(floorBoss);
 	boss->Initialize(spawn, center, halfSize, static_cast<uint32_t>(random()));
 	boss->SetCamera(camera);
-	hud.SetBoss(boss->GetNameTexture());
-	shake = 1.0f;
+	// 登場演出を始める（体力バーは、演出が終わってから出す）
+	bossIntroTimer = 0.0001f;
+	bossIntroTime = 0.0f;
+	bossIntroFlash = 0.0f;
+	bossIntroName->ChangeTexture(boss->GetNameTexture());
+	bossIntroName->SetSize(bossIntroName->GetTextureSize());
+}
+
+void StageScene::UpdateBossIntro()
+{
+	bossIntroTime += kDeltaTime;
+	float t = bossIntroTime;
+
+	// ボスは、自分の登場（地面から出てきて吠える）の間だけ動かす。吠えたあとは時間を止めて、名前の表示を見せる
+	BossBase::Events events;
+	boss->Update(player->GetPosition(), t < kBossIntroRiseTime ? kDeltaTime : 0.0f, events);
+	if (events.roar) {
+		shake = 1.0f;
+		bossIntroFlash = 1.0f;
+		ParticleManager::GetInstance()->Emit(kParticleSpark, boss->GetPosition() + Vector3{ 0.0f, 1.5f, 0.0f }, 40u);
+	}
+	// 出てくる間は、じわじわ揺れが強くなる
+	if (t > 0.3f && t < kBossIntroRiseTime) {
+		shake = (std::max)(shake, (t - 0.3f) / (kBossIntroRiseTime - 0.3f) * 0.45f);
+	}
+
+	// 上下の黒い帯（映画のように）。最初にせり出して、最後に引っこむ
+	auto easeOut = [](float x) { x = std::clamp(x, 0.0f, 1.0f); return 1.0f - (1.0f - x) * (1.0f - x); };
+	float bar = kBossIntroBarHeight * easeOut(t / 0.5f) * (1.0f - easeOut((t - (kBossIntroTotalTime - 0.5f)) / 0.5f));
+	ui.Rect(0.0f, 0.0f, 1280.0f, bar, { 0.0f, 0.0f, 0.0f, 1.0f });
+	ui.Rect(0.0f, 720.0f - bar, 1280.0f, bar, { 0.0f, 0.0f, 0.0f, 1.0f });
+
+	// 吠えた瞬間の白い光
+	if (bossIntroFlash > 0.0f) {
+		ui.Rect(0.0f, 0.0f, 1280.0f, 720.0f, { 1.0f, 1.0f, 1.0f, bossIntroFlash * 0.8f });
+		bossIntroFlash = (std::max)(0.0f, bossIntroFlash - kDeltaTime * 3.0f);
+	}
+
+	// 名前：吠えたあとに、大きくから元の大きさへ。二つ名はその下に
+	float nameStart = kBossIntroRiseTime + 0.1f;
+	float nameEnd = kBossIntroTotalTime - 0.4f;
+	float appear = std::clamp((t - nameStart) / 0.3f, 0.0f, 1.0f);
+	float vanish = std::clamp((nameEnd - t) / 0.3f, 0.0f, 1.0f);
+	bossIntroNameAlpha = appear * vanish;
+	float scale = 2.0f + 0.8f * (1.0f - easeOut(appear));
+	bossIntroName->SetAnchorPoint({ 0.5f, 0.5f });
+	bossIntroName->SetPosition({ 640.0f, 560.0f });
+	bossIntroName->SetSize({ bossIntroName->GetTextureSize().x * scale, bossIntroName->GetTextureSize().y * scale });
+	bossIntroName->SetColor({ 1.0f, 1.0f, 1.0f, bossIntroNameAlpha });
+	bossIntroName->Update();
+	if (bossIntroNameAlpha > 0.0f) {
+		ui.Text(boss->GetEpithet(), 640.0f, 612.0f, 28.0f, { 1.0f, 0.85f, 0.4f, bossIntroNameAlpha }, UiKit::Align::kCenter);
+	}
+
+	// スペースで飛ばせる（吠えたあと）
+	if (t > kBossIntroRiseTime && input->TriggerKey(DIK_SPACE)) {
+		bossIntroTime = kBossIntroTotalTime;
+	}
+	if (bossIntroTime >= kBossIntroTotalTime) {
+		bossIntroTimer = 0.0f;
+		bossIntroNameAlpha = 0.0f;
+		hud.SetBoss(boss->GetNameTexture());
+		holdFireUntilRelease = true;
+	}
+	UpdateFrozenWorld();
 }
 
 void StageScene::UpdateBoss()
@@ -1752,6 +1828,9 @@ void StageScene::Draw()
 	warpMap.Draw(); // 大きなマップ（開いているときだけ）
 	if (warpPhase != WarpPhase::kNone) {
 		warpFlash->Draw(); // ワープの光
+	}
+	if (bossIntroTimer > 0.0f && bossIntroNameAlpha > 0.0f) {
+		bossIntroName->Draw(); // ボスの名前（登場演出）
 	}
 	ui.Draw(); // 文字・メニュー（一番手前）
 	growthChoice.Draw();
