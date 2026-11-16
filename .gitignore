@@ -381,3 +381,5 @@ TopDownShooter/imgui.ini
 TopDownShooter/records.txt
 TopDownShooter/logs/
 TopDownShooter/fullscreen_log.txt
+
+TopDownShooter/settings.ini
