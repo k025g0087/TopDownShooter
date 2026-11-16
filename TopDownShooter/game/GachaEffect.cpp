@@ -1,4 +1,5 @@
 #include "GachaEffect.h"
+#include "GameSettings.h"
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -78,7 +79,7 @@ void GachaEffect::Initialize(SpriteCommon* spriteCommon)
 		sprite = std::make_unique<Sprite>();
 		sprite->Initialize(spriteCommon, texture);
 		sprite->SetAnchorPoint(anchor);
-		};
+	};
 	make(background, "resources/white.png", { 0.0f, 0.0f });
 	background->SetSize(screenSize);
 	make(flash, "resources/white.png", { 0.0f, 0.0f });
@@ -146,7 +147,7 @@ bool GachaEffect::Update(Input* input, float deltaTime)
 	}
 
 	bool decide = input->TriggerKey(DIK_SPACE) || input->TriggerPad(XINPUT_GAMEPAD_A) ||
-		input->TriggerKey(DIK_E) || input->TriggerPad(XINPUT_GAMEPAD_X) || input->TriggerMouse(Input::MouseButton::kLeft);
+		GameSettings::GetInstance()->Trigger(input, GameAction::kInteract) || input->TriggerPad(XINPUT_GAMEPAD_X) || input->TriggerMouse(Input::MouseButton::kLeft);
 	// 開く前：決定で、開くところまで飛ばす（回したボタンをそのまま押してしまわないように、少し待ってから）
 	if (decide && time > 0.3f && time < kOpenTime) {
 		time = kOpenTime;
@@ -306,7 +307,7 @@ void GachaEffect::BurstStars()
 	for (size_t i = 0; i < stars.size(); ++i) {
 		Star& star = stars[i];
 		// 均等な向きに、少しずつ速さと大きさを変えて飛ばす
-		float angle = std::numbers::pi_v<float> *2.0f * static_cast<float>(i) / static_cast<float>(stars.size()) + 0.2f * static_cast<float>(i % 3);
+		float angle = std::numbers::pi_v<float> * 2.0f * static_cast<float>(i) / static_cast<float>(stars.size()) + 0.2f * static_cast<float>(i % 3);
 		float speed = 520.0f + 160.0f * static_cast<float>(i % 4);
 		star.velocity = { std::cos(angle) * speed, std::sin(angle) * speed };
 		star.spin = (i % 2 == 0) ? 4.0f : -4.0f;

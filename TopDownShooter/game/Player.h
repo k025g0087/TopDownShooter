@@ -29,6 +29,8 @@ public:
 	void SetPosition(const Vector3& newPosition);
 
 	void SetCamera(Camera* camera) { rig.SetCamera(camera); }
+	// ワープの演出：体全体の大きさを変える。世界が止まっていても見た目に反映する
+	void SetBodyScale(const Vector3& scale) { bodyScale = scale; UpdateModel(0.0f); }
 
 	const Vector3& GetPosition() const { return position; }
 	// 当たり判定の半径
@@ -58,6 +60,7 @@ private:
 
 	// 見た目（部品に分けて動かす）
 	CharacterRig rig;
+	Vector3 bodyScale = { 1.0f, 1.0f, 1.0f };
 	// ダメージでのけぞる残り時間
 	float hurtTimer = 0.0f;
 	PlayerStats stats;

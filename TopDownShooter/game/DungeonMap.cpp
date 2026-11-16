@@ -13,6 +13,8 @@ void DungeonMap::Build(const DungeonLayout& sourceLayout, const RoomTemplateLibr
 	doorOwners.assign(static_cast<size_t>(kMapWidth * kMapHeight), -1);
 	roomAreas.assign(layout.rooms.size(), RoomArea{});
 	objects.clear();
+	flowDistance.clear(); // 道順の地図は作り直す
+	flowMinX = 0; flowMinY = 0; flowMaxX = -1; flowMaxY = -1;
 	exitStairsTileX = -1;
 	exitStairsTileY = -1;
 
@@ -24,6 +26,9 @@ void DungeonMap::Build(const DungeonLayout& sourceLayout, const RoomTemplateLibr
 		area.originY = room.gridY * kSlotHeight;
 		if (room.type == RoomType::kExit) {
 			BuildExitRoom(area);
+		} else if (room.type == RoomType::kTreasure || room.type == RoomType::kShop) {
+			// 宝部屋とショップは、同じ小さな部屋（真ん中に宝箱・ガチャを置く）
+			BuildTreasureRoom(room, area);
 		} else {
 			BuildTemplateRoom(room, area, library, random);
 		}
@@ -96,6 +101,19 @@ void DungeonMap::Build(const DungeonLayout& sourceLayout, const RoomTemplateLibr
 				}
 			}
 		}
+		if (room.type == RoomType::kTreasure || room.type == RoomType::kShop) {
+			// 宝箱・ガチャの小部屋：床のあるマスに1枚ずつ置く（壁で埋めた部分に、大きな床の板が見えないように）
+			const char* smallFloor = room.type == RoomType::kShop ? kModelFloorShop : kModelFloorTreasure;
+			for (int32_t y = 0; y < kRoomHeight; ++y) {
+				for (int32_t x = 0; x < kRoomWidth; ++x) {
+					int32_t mapX = area.originX + x;
+					int32_t mapY = area.originY + y;
+					if (GetTile(mapX, mapY) != Tile::kWall) {
+						AddObject(smallFloor, TileCenter(mapX, mapY), tileHalfSize, -1);
+					}
+				}
+			}
+		}
 		const char* floorModel = kModelFloorRoom;
 		if (room.type == RoomType::kBoss) {
 			floorModel = kModelFloorBoss;
@@ -105,7 +123,7 @@ void DungeonMap::Build(const DungeonLayout& sourceLayout, const RoomTemplateLibr
 			floorModel = kModelFloorShop;
 		}
 		const Vector2 roomHalf = { static_cast<float>(kRoomWidth) * kTileSize * 0.5f, static_cast<float>(kRoomHeight) * kTileSize * 0.5f };
-		if (room.type != RoomType::kExit) {
+		if (room.type != RoomType::kExit && room.type != RoomType::kTreasure && room.type != RoomType::kShop) {
 			AddObject(floorModel, GetRoomCenter(static_cast<int32_t>(i)), roomHalf, -1);
 		}
 
@@ -175,6 +193,37 @@ void DungeonMap::BuildTemplateRoom(RoomNode& room, RoomArea& area, const RoomTem
 					area.spawnPoints.push_back({ TileCenter(mapX, mapY), c });
 				}
 			}
+		}
+	}
+}
+
+void DungeonMap::BuildTreasureRoom(const RoomNode& room, const RoomArea& area)
+{
+	// まわりは全部壁。真ん中の小さな四角だけ床にする
+	for (int32_t y = 0; y < kRoomHeight; ++y) {
+		for (int32_t x = 0; x < kRoomWidth; ++x) {
+			bool inside = x >= kTreasureLeft && x <= kTreasureRight && y >= kTreasureTop && y <= kTreasureBottom;
+			SetTile(area.originX + x, area.originY + y, inside ? Tile::kFloor : Tile::kWall);
+		}
+	}
+	// 扉のある向きごとに、扉から小さな四角まで1マス幅の道を通す
+	for (int32_t direction = 0; direction < kDirectionCount; ++direction) {
+		if (room.neighbors[static_cast<size_t>(direction)] < 0) {
+			continue;
+		}
+		for (int32_t step = 1; step < kRoomWidth; ++step) {
+			int32_t x = kDoorCenterX, y = kDoorCenterY;
+			switch (direction) {
+			case kDirectionUp: y = step; break;
+			case kDirectionDown: y = kRoomHeight - 1 - step; break;
+			case kDirectionLeft: x = step; break;
+			case kDirectionRight:
+			default: x = kRoomWidth - 1 - step; break;
+			}
+			if (x >= kTreasureLeft && x <= kTreasureRight && y >= kTreasureTop && y <= kTreasureBottom) {
+				break;
+			}
+			SetTile(area.originX + x, area.originY + y, Tile::kFloor);
 		}
 	}
 }
@@ -313,6 +362,141 @@ Vector3 DungeonMap::ResolveCircle(const Vector3& position, float radius) const
 		}
 	}
 	return result;
+}
+
+bool DungeonMap::HasLineOfSight(const Vector3& from, const Vector3& to, float radius) const
+{
+	Vector3 diff = { to.x - from.x, 0.0f, to.z - from.z };
+	float length = std::sqrt(diff.x * diff.x + diff.z * diff.z);
+	if (length < 0.01f) {
+		return true;
+	}
+	Vector3 direction = diff / length;
+	Vector3 side = { -direction.z, 0.0f, direction.x };
+	// 線の上を少しずつ見ていって、壁のマスに当たったら見えない。体の幅（radius）の分、左右も見る
+	const float kStep = 0.4f;
+	for (float distance = 0.0f; distance <= length; distance += kStep) {
+		Vector3 point = { from.x + direction.x * distance, 0.0f, from.z + direction.z * distance };
+		if (IsSolidAt(point)) {
+			return false;
+		}
+		if (radius > 0.0f) {
+			if (IsSolidAt({ point.x + side.x * radius, 0.0f, point.z + side.z * radius }) ||
+				IsSolidAt({ point.x - side.x * radius, 0.0f, point.z - side.z * radius })) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+bool DungeonMap::IsFlowWalkable(int32_t x, int32_t y) const
+{
+	return x >= flowMinX && x <= flowMaxX && y >= flowMinY && y <= flowMaxY && !IsSolidTile(x, y);
+}
+
+void DungeonMap::UpdateFlowField(const Vector3& target, int32_t roomIndex)
+{
+	if (roomIndex < 0 || roomIndex >= static_cast<int32_t>(roomAreas.size())) {
+		return;
+	}
+	size_t total = static_cast<size_t>(kMapWidth) * static_cast<size_t>(kMapHeight);
+	if (flowDistance.size() != total) {
+		flowDistance.assign(total, -1);
+	}
+	// 前に作った範囲を消す
+	for (int32_t y = flowMinY; y <= flowMaxY; ++y) {
+		for (int32_t x = flowMinX; x <= flowMaxX; ++x) {
+			flowDistance[static_cast<size_t>(y * kMapWidth + x)] = -1;
+		}
+	}
+	// 部屋と、そのまわり1マス（扉の外）を範囲にする
+	const RoomArea& area = roomAreas[static_cast<size_t>(roomIndex)];
+	flowMinX = (std::max)(0, area.originX - 1);
+	flowMaxX = (std::min)(kMapWidth - 1, area.originX + kRoomWidth);
+	flowMinY = (std::max)(0, area.originY - 1);
+	flowMaxY = (std::min)(kMapHeight - 1, area.originY + kRoomHeight);
+
+	int32_t startX = ToTileX(target.x);
+	int32_t startY = ToTileY(target.z);
+	if (!IsFlowWalkable(startX, startY)) {
+		return;
+	}
+	// 幅優先探索：目的地のマスから、8方向に歩数を広げていく
+	std::vector<int32_t> queue;
+	queue.reserve(static_cast<size_t>((flowMaxX - flowMinX + 1) * (flowMaxY - flowMinY + 1)));
+	flowDistance[static_cast<size_t>(startY * kMapWidth + startX)] = 0;
+	queue.push_back(startY * kMapWidth + startX);
+	for (size_t head = 0; head < queue.size(); ++head) {
+		int32_t currentX = queue[head] % kMapWidth;
+		int32_t currentY = queue[head] / kMapWidth;
+		int16_t currentDistance = flowDistance[static_cast<size_t>(queue[head])];
+		for (int32_t dy = -1; dy <= 1; ++dy) {
+			for (int32_t dx = -1; dx <= 1; ++dx) {
+				if (dx == 0 && dy == 0) {
+					continue;
+				}
+				int32_t nextX = currentX + dx;
+				int32_t nextY = currentY + dy;
+				if (!IsFlowWalkable(nextX, nextY) || flowDistance[static_cast<size_t>(nextY * kMapWidth + nextX)] >= 0) {
+					continue;
+				}
+				// 斜めは、角をかすめないように、両隣も通れるときだけ
+				if (dx != 0 && dy != 0 && (!IsFlowWalkable(currentX + dx, currentY) || !IsFlowWalkable(currentX, currentY + dy))) {
+					continue;
+				}
+				flowDistance[static_cast<size_t>(nextY * kMapWidth + nextX)] = static_cast<int16_t>(currentDistance + 1);
+				queue.push_back(nextY * kMapWidth + nextX);
+			}
+		}
+	}
+}
+
+Vector3 DungeonMap::GetFlowDirection(const Vector3& position) const
+{
+	if (flowDistance.empty()) {
+		return { 0.0f, 0.0f, 0.0f };
+	}
+	int32_t tileX = ToTileX(position.x);
+	int32_t tileY = ToTileY(position.z);
+	if (!IsFlowWalkable(tileX, tileY)) {
+		return { 0.0f, 0.0f, 0.0f };
+	}
+	int16_t currentDistance = flowDistance[static_cast<size_t>(tileY * kMapWidth + tileX)];
+	if (currentDistance < 0) {
+		return { 0.0f, 0.0f, 0.0f };
+	}
+	// まわり8マスの中で、一番歩数が少ないマスへ向かう
+	int16_t bestDistance = currentDistance;
+	int32_t bestX = tileX, bestY = tileY;
+	for (int32_t dy = -1; dy <= 1; ++dy) {
+		for (int32_t dx = -1; dx <= 1; ++dx) {
+			if (dx == 0 && dy == 0) {
+				continue;
+			}
+			int32_t nextX = tileX + dx;
+			int32_t nextY = tileY + dy;
+			if (!IsFlowWalkable(nextX, nextY)) {
+				continue;
+			}
+			if (dx != 0 && dy != 0 && (!IsFlowWalkable(tileX + dx, tileY) || !IsFlowWalkable(tileX, tileY + dy))) {
+				continue;
+			}
+			int16_t nextDistance = flowDistance[static_cast<size_t>(nextY * kMapWidth + nextX)];
+			if (nextDistance >= 0 && nextDistance < bestDistance) {
+				bestDistance = nextDistance;
+				bestX = nextX;
+				bestY = nextY;
+			}
+		}
+	}
+	if (bestDistance == currentDistance) {
+		return { 0.0f, 0.0f, 0.0f };
+	}
+	Vector3 goal = TileCenter(bestX, bestY);
+	Vector3 direction = { goal.x - position.x, 0.0f, goal.z - position.z };
+	float length = std::sqrt(direction.x * direction.x + direction.z * direction.z);
+	return (length > 0.001f) ? direction / length : Vector3{ 0.0f, 0.0f, 0.0f };
 }
 
 bool DungeonMap::IsSolidAt(const Vector3& position) const

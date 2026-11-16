@@ -18,6 +18,9 @@
 #include "BlendMode.h"
 #include "ImGuiManager.h"
 #include "RunRecord.h"
+#include "GameSettings.h"
+#include "PauseMenu.h"
+#include "WarpMap.h"
 
 using namespace MathUtility;
 
@@ -30,6 +33,8 @@ namespace {
 	const std::string kModelEnemyBullet = "test_enemy_bullet.obj";
 	const std::string kModelFireBullet = "test_fire.obj";
 	const std::string kModelStairs = "test_exit_stairs.obj"; // 下へ行く階段（出口の小部屋）
+	const std::string kModelWarpOff = "test_warp_off.obj";  // ワープの転送陣（まだ使えない：灰色）
+	const std::string kModelWarpOn = "test_warp_on.obj";    // ワープの転送陣（使える：光る）
 	const std::string kModelPortal = "test_portal.obj";      // 帰還の転送陣（出口の小部屋）
 	const std::string kModelGacha = "test_gacha.obj";
 	const char* kTextureGachaPrompt = "resources/prompt_gacha.png";
@@ -122,7 +127,7 @@ void StageScene::Initialize()
 	}
 	// 床と攻撃は陰影なし（床は暗くならないように、攻撃は光っているように見せる）
 	const std::string unlitModels[] = {
-		kModelBullet, kModelEnemyBullet, kModelFireBullet, kModelPortal, LegendaryWeapon::kModelFireZone, DungeonMap::kModelFloorExit, DragonBoss::kModelShadow, DragonBoss::kModelWarning, CoinManager::kModelCoin, DungeonMap::kModelFloorShop, Barrier::kModel, Barrier::kModelBreak, character.shot.modelName,
+		kModelBullet, kModelEnemyBullet, kModelFireBullet, kModelPortal, kModelWarpOff, kModelWarpOn, LegendaryWeapon::kModelFireZone, DungeonMap::kModelFloorExit, DragonBoss::kModelShadow, DragonBoss::kModelWarning, Enemy::kModelAimLine, CoinManager::kModelCoin, DungeonMap::kModelFloorShop, Barrier::kModel, Barrier::kModelBreak, character.shot.modelName,
 		DungeonMap::kModelFloorRoom, DungeonMap::kModelFloorBoss, DungeonMap::kModelFloorTreasure, DungeonMap::kModelFloorCorridor };
 	for (const std::string& name : unlitModels) {
 		modelManager->LoadModel(name);
@@ -131,7 +136,7 @@ void StageScene::Initialize()
 
 	// 画面表示の画像（ミニマップ・ハート・ゲームオーバー）
 	TextureManager* textureManager = TextureManager::GetInstance();
-	for (const char* path : { Minimap::kTexture, StageHud::kTextureHeartFull, StageHud::kTextureHeartHalf,
+	for (const char* path : { Minimap::kTexture, WarpMap::kTextureIcon, UiKit::kTextureFont, StageHud::kTextureHeartFull, StageHud::kTextureHeartHalf,
 		StageHud::kTextureHeartEmpty, StageHud::kTextureGameOver, StageHud::kTextureWhite, BuildHud::kTextureDigits,
 		GrowthChoice::kTextureTitle, GrowthChoice::kTextureHint,
 		InventoryHud::kTextureCoin, kTextureGachaPrompt, kTextureGachaPromptPoor, kTextureChestPrompt, kTextureBarrierGet, StageHud::kTextureGameClear, DragonBoss::kTextureName,
@@ -282,6 +287,40 @@ void StageScene::BuildFloor()
 		map.SetRoomLocked(layout.exitRoom, true);
 	}
 	minimap.Initialize(spriteCommon, layout);
+	ui.Initialize(spriteCommon);
+	// ワープの部屋：最初の部屋・ショップ・宝部屋と、スタートから3の倍数の深さにある戦闘部屋
+	warpRooms.assign(layout.rooms.size(), false);
+	for (size_t i = 0; i < layout.rooms.size(); ++i) {
+		const RoomNode& room = layout.rooms[i];
+		if (room.type == RoomType::kStart || room.type == RoomType::kShop || room.type == RoomType::kTreasure ||
+			(room.type == RoomType::kCombat && room.depth > 0 && room.depth % kWarpDepthInterval == 0)) {
+			warpRooms[i] = true;
+		}
+	}
+	warpMap.Initialize(spriteCommon, layout, warpRooms);
+	// ワープの転送陣を、ワープの部屋に置く
+	warpPads.clear();
+	for (size_t i = 0; i < warpRooms.size(); ++i) {
+		if (!warpRooms[i]) {
+			continue;
+		}
+		WarpPad pad;
+		pad.room = static_cast<int32_t>(i);
+		pad.position = FindWarpPadPosition(static_cast<int32_t>(i));
+		pad.off = std::make_unique<Object3d>();
+		pad.off->Initialize(object3dCommon);
+		pad.off->SetModel(kModelWarpOff);
+		pad.on = std::make_unique<Object3d>();
+		pad.on->Initialize(object3dCommon);
+		pad.on->SetModel(kModelWarpOn);
+		warpPads.push_back(std::move(pad));
+	}
+	warpPhase = WarpPhase::kNone;
+	warpFlash = std::make_unique<Sprite>();
+	warpFlash->Initialize(spriteCommon, StageHud::kTextureWhite);
+	warpFlash->SetSize({ static_cast<float>(WinApp::kClientWidth), static_cast<float>(WinApp::kClientHeight) });
+	warpFlash->SetColor({ 1.0f, 0.9f, 1.0f, 0.0f });
+	warpFlash->Update();
 	// 伝説の武器の炎と矢の雨は、フロアが変わったら消す（武器は持ったまま）
 	legendary.ClearEffects();
 	// コインは床に残っていても消す。ガチャはショップの真ん中に置く（マップを作った後でないと部屋の位置が分からない）
@@ -339,6 +378,8 @@ void StageScene::Finalize()
 
 void StageScene::Update()
 {
+	// 文字や四角の道具：今フレームの描く内容を空にする（ポーズや設定のメニューが積む）
+	ui.BeginFrame();
 	// ゲームオーバー・帰還の後は、世界を止めてリザルトとやり直しの入力だけ
 	if (isGameOver || isGameClear) {
 		UpdateGameOver();
@@ -363,9 +404,49 @@ void StageScene::Update()
 		return;
 	}
 
-	// Esc でキャラ選択へ戻る（仮。キャラを遊び比べやすいように）
+	// ワープの演出中：世界を止めて、演出だけ進める
+	if (warpPhase != WarpPhase::kNone) {
+		UpdateWarpEffect();
+		return;
+	}
+	// ポーズ中：世界を止めて、ポーズ画面だけ動かす
+	if (pauseMenu.IsOpen()) {
+		PauseMenu::Result pauseResult = pauseMenu.Update(input, &ui);
+		if (pauseResult == PauseMenu::Result::kQuit) {
+			SceneManager::GetInstance()->ChangeScene("SELECT");
+		} else if (pauseResult == PauseMenu::Result::kResume) {
+			holdFireUntilRelease = true; // メニューを押したクリックで撃たないように
+		}
+		UpdateFrozenWorld();
+		return;
+	}
+	// 大きなマップを開いている間：世界を止めて、ワープの行き先を選ぶ
+	if (warpMap.IsOpen()) {
+		// 今ワープで行ける部屋（行ったことがあって、敵のいない部屋）
+		std::vector<bool> warpReady(layout.rooms.size(), false);
+		for (size_t i = 0; i < warpReady.size(); ++i) {
+			warpReady[i] = warpRooms[i] && roomVisited[i] && roomStates[i] == RoomState::kCleared;
+		}
+		WarpMap::Result warpResult = warpMap.Update(input, roomVisited, warpReady, currentRoom, fightingRoom < 0, &ui);
+		if (warpResult.type != WarpMap::ResultType::kNone) {
+			holdFireUntilRelease = true; // クリックで撃たないように
+		}
+		if (warpResult.type == WarpMap::ResultType::kWarp) {
+			WarpToRoom(warpResult.room);
+		}
+		UpdateFrozenWorld();
+		return;
+	}
+	// Tab で大きなマップを開く（ワープもここから）
+	if (input->TriggerKey(DIK_TAB)) {
+		warpMap.Open(currentRoom);
+		UpdateFrozenWorld();
+		return;
+	}
+	// Esc でポーズ画面を開く
 	if (input->TriggerKey(DIK_ESCAPE)) {
-		SceneManager::GetInstance()->ChangeScene("SELECT");
+		pauseMenu.Open();
+		UpdateFrozenWorld();
 		return;
 	}
 	// 力を選んでいる間は、世界を止めて選ぶ画面だけ動かす
@@ -521,6 +602,10 @@ void StageScene::UpdateRooms()
 void StageScene::SpawnEnemies(int32_t roomIndex)
 {
 	enemies.clear();
+	flowTimer = 0.0f; // 出てすぐ、道順の地図を作る
+	comboTimer = 0.0f;
+	previousPlayerPosition = player->GetPosition();
+	playerVelocity = { 0.0f, 0.0f, 0.0f };
 	RoomType roomType = layout.rooms[static_cast<size_t>(roomIndex)].type;
 	std::vector<DungeonMap::RoomArea::SpawnPoint> points = map.GetRoomArea(roomIndex).spawnPoints;
 	// ひな形に出てくる場所がなければ、部屋の中のランダムな場所にする
@@ -581,15 +666,116 @@ EnemyType StageScene::ChooseRandomEnemyType(RoomType roomType)
 
 void StageScene::UpdateEnemies()
 {
-	for (std::unique_ptr<Enemy>& enemy : enemies) {
-		Enemy::ShotRequest enemyShot = enemy->Update(player->GetPosition(), kDeltaTime);
+	Vector3 playerPosition = player->GetPosition();
+
+	// プレイヤーの動く速さ（先読みして撃つのに使う）。急に変わるので、少しなめらかにする
+	Vector3 instantVelocity = (playerPosition - previousPlayerPosition) / kDeltaTime;
+	instantVelocity.y = 0.0f;
+	if (Length(instantVelocity) > 14.0f) {
+		instantVelocity = { 0.0f, 0.0f, 0.0f }; // 瞬間移動（部屋の切りかわりなど）は無視する
+	}
+	// ロール中は先読みしない（ロールは急に速くなるので、先読みすると「ロールの行き先」を撃たれてしまう）
+	// 歩いている向きだけを先読みするので、ロールしている間とその直後は、先読みの速さを0にする
+	if (player->IsRolling()) {
+		rollCooldown = kLeadRollCooldown;
+	}
+	rollCooldown -= kDeltaTime;
+	if (rollCooldown > 0.0f) {
+		instantVelocity = { 0.0f, 0.0f, 0.0f };
+		playerVelocity = Lerp(playerVelocity, instantVelocity, 0.5f);
+	} else {
+		playerVelocity = Lerp(playerVelocity, instantVelocity, 0.25f);
+	}
+	previousPlayerPosition = playerPosition;
+
+	enemyClock += kDeltaTime;
+	comboTimer -= kDeltaTime;
+
+	// 道順の地図（壁をよけて、プレイヤーのところへ行くため）は、少しおきに作り直す
+	flowTimer -= kDeltaTime;
+	if (flowTimer <= 0.0f && fightingRoom >= 0) {
+		map.UpdateFlowField(playerPosition, fightingRoom);
+		flowTimer = kFlowInterval;
+	}
+
+	// ---- 攻撃の許可と、陣取りの場所を配る ----
+	// 同時に攻撃できる敵の数を制限する（全員が一斉に撃つと避けようがないので、順番に攻撃させる）
+	// 群れ（飛びかかり）とそれ以外（射撃・突進・重装）で、別々に数える
+	int32_t attackers[2] = { 0, 0 };
+	int32_t rangedCount = 0, swarmCount = 0;
+	for (const std::unique_ptr<Enemy>& enemy : enemies) {
+		if (!enemy->IsAlive()) {
+			continue;
+		}
+		bool isSwarm = enemy->GetType() == EnemyType::kSwarm;
+		if (enemy->IsAttacking()) {
+			++attackers[isSwarm ? 1 : 0];
+		}
+		// 陣取りの場所：射撃と重装はプレイヤーを挟むように、群れは囲むように、みんなで角度を分ける
+		if (isSwarm) {
+			++swarmCount;
+		} else if (enemy->GetType() == EnemyType::kShooter || enemy->GetType() == EnemyType::kTank) {
+			++rangedCount;
+		}
+	}
+	int32_t rangedIndex = 0, swarmIndex = 0;
+	const float kTwoPi = std::numbers::pi_v<float> * 2.0f;
+
+	// 許可を配る順番を毎フレームずらす
+	size_t enemyTotal = enemies.size();
+	if (enemyTotal > 0) {
+		enemyTurn = (enemyTurn + 1) % enemyTotal;
+	}
+	// 先に、全員の陣取りの角度を決める（順番に関係なく、いつも同じ割り当てになるように）
+	std::vector<float> ringAngles(enemyTotal, 0.0f);
+	for (size_t i = 0; i < enemyTotal; ++i) {
+		const Enemy& enemy = *enemies[i];
+		if (!enemy.IsAlive()) {
+			continue;
+		}
+		if (enemy.GetType() == EnemyType::kSwarm) {
+			ringAngles[i] = enemyClock * 0.4f + kTwoPi * static_cast<float>(swarmIndex++) / static_cast<float>((std::max)(swarmCount, 1));
+		} else if (enemy.GetType() == EnemyType::kShooter || enemy.GetType() == EnemyType::kTank) {
+			ringAngles[i] = enemyClock * 0.12f + kTwoPi * static_cast<float>(rangedIndex++) / static_cast<float>((std::max)(rangedCount, 1));
+		}
+	}
+
+	for (size_t k = 0; k < enemyTotal; ++k) {
+		size_t i = (enemyTurn + k) % enemyTotal;
+		std::unique_ptr<Enemy>& enemy = enemies[i];
+		if (!enemy->IsAlive()) {
+			continue;
+		}
+		bool isSwarm = enemy->GetType() == EnemyType::kSwarm;
+		int32_t group = isSwarm ? 1 : 0;
+
+		EnemyPerception perception;
+		perception.targetPosition = playerPosition;
+		perception.targetVelocity = playerVelocity;
+		// 壁にさえぎられていないか（体の幅の分も見る）
+		perception.hasLineOfSight = map.HasLineOfSight(enemy->GetPosition(), playerPosition, enemy->GetRadius() * 0.8f);
+		perception.flowDirection = map.GetFlowDirection(enemy->GetPosition());
+		perception.canAttack = enemy->IsAttacking() || attackers[group] < kMaxAttackers;
+		perception.comboReady = comboTimer > 0.0f && enemy->GetType() == EnemyType::kCharger;
+		perception.ringAngle = ringAngles[i];
+
+		bool wasAttacking = enemy->IsAttacking();
+		Enemy::ShotRequest enemyShot = enemy->Update(perception, kDeltaTime);
+		if (!wasAttacking && enemy->IsAttacking()) {
+			++attackers[group];
+		}
+
 		// 弾を撃つ（count 発を spread ずつずらして。真ん中がプレイヤーの方）
 		if (enemyShot.shoot && player->IsAlive()) {
 			float baseAngle = std::atan2(enemyShot.direction.x, enemyShot.direction.z);
-			for (int32_t i = 0; i < enemyShot.count; ++i) {
-				float angle = baseAngle + (static_cast<float>(i) - static_cast<float>(enemyShot.count - 1) / 2.0f) * enemyShot.spread;
+			for (int32_t n = 0; n < enemyShot.count; ++n) {
+				float angle = baseAngle + (static_cast<float>(n) - static_cast<float>(enemyShot.count - 1) / 2.0f) * enemyShot.spread;
 				Vector3 direction = { std::sin(angle), 0.0f, std::cos(angle) };
 				bullets.Fire(enemyShot.position, direction, enemyShot.speed, enemyShot.lifeTime, enemyShot.damage, enemyShotStyle, false);
+			}
+			// 射撃が撃った直後は、突進が飛び込みやすい（連携）
+			if (enemy->GetType() == EnemyType::kShooter) {
+				comboTimer = kComboTime;
 			}
 		}
 	}
@@ -692,6 +878,7 @@ void StageScene::UpdateCamera()
 		portal->SetRotate({ 0.0f, shakeTime * (exitOpen ? 0.9f : 0.15f), 0.0f });
 		portal->Update();
 	}
+	UpdateWarpPads();
 }
 
 void StageScene::CheckBulletHits()
@@ -1223,7 +1410,7 @@ void StageScene::UpdateGacha()
 
 	// 近くで E／パッドの X：コインが足りれば回す
 	nearGacha = distance < kGachaUseDistance;
-	if (!nearGacha || !(input->TriggerKey(DIK_E) || input->TriggerPad(XINPUT_GAMEPAD_X))) {
+	if (!nearGacha || !(GameSettings::GetInstance()->Trigger(input, GameAction::kInteract) || input->TriggerPad(XINPUT_GAMEPAD_X))) {
 		return;
 	}
 	if (coinCount < kGachaPrice) {
@@ -1270,7 +1457,7 @@ void StageScene::UpdateChest()
 
 	// 近くで E／パッドの X：開けてバリアを1枚もらう（1フロアに1回）
 	nearChest = distance < kChestUseDistance;
-	if (!nearChest || !(input->TriggerKey(DIK_E) || input->TriggerPad(XINPUT_GAMEPAD_X))) {
+	if (!nearChest || !(GameSettings::GetInstance()->Trigger(input, GameAction::kInteract) || input->TriggerPad(XINPUT_GAMEPAD_X))) {
 		return;
 	}
 	chestOpened = true;
@@ -1390,6 +1577,132 @@ void StageScene::UpdateGameOver()
 	UpdateFrozenWorld();
 }
 
+void StageScene::WarpToRoom(int32_t roomIndex)
+{
+	if (roomIndex < 0 || roomIndex >= static_cast<int32_t>(layout.rooms.size())) {
+		return;
+	}
+	// 演出を始める（行き先に着くのは、縮む演出が終わってから）
+	warpTarget = roomIndex;
+	warpPhase = WarpPhase::kOut;
+	warpTimer = 0.0f;
+	bullets.ClearEnemyBullets();
+}
+
+void StageScene::UpdateWarpEffect()
+{
+	ParticleManager* particles = ParticleManager::GetInstance();
+	warpTimer += kDeltaTime;
+	float t = (std::min)(1.0f, warpTimer / (warpPhase == WarpPhase::kOut ? kWarpOutTime : kWarpInTime));
+
+	if (warpPhase == WarpPhase::kOut) {
+		// 光の柱になって、空へ吸い込まれるように：細く、高く伸びる
+		float k = t * t;
+		player->SetBodyScale({ 1.0f - k, 1.0f + 3.0f * k, 1.0f - k });
+		Vector3 position = player->GetPosition();
+		particles->Emit(kParticleSpark, position + Vector3{ 0.0f, 0.3f + 2.5f * t, 0.0f }, 3u);
+		warpFlash->SetColor({ 1.0f, 0.9f, 1.0f, k });
+		shake = (std::min)(1.0f, shake + 0.03f);
+		if (warpTimer >= kWarpOutTime) {
+			// 行き先へ（部屋の転送陣のそば）
+			Vector3 destination = FindWarpPadPosition(warpTarget);
+			for (const WarpPad& pad : warpPads) {
+				if (pad.room == warpTarget) {
+					destination = pad.position;
+				}
+			}
+			// 転送陣の手前に降りる（陣の上に乗り続けないように、少しだけ下へずらす）
+			destination += Vector3{ 0.0f, 0.0f, -1.8f };
+			player->SetPosition(destination);
+			cameraFocus = destination;
+			warpArrivalRoom = warpTarget;
+			warpPhase = WarpPhase::kIn;
+			warpTimer = 0.0f;
+			particles->Emit(kParticleSpark, destination + Vector3{ 0.0f, 0.5f, 0.0f }, 40u);
+			shake = (std::min)(1.0f, shake + 0.35f);
+		}
+	} else {
+		// 到着：光の柱から元の姿に戻り、光が引いていく
+		float k = (1.0f - t) * (1.0f - t);
+		player->SetBodyScale({ 1.0f - k, 1.0f + 3.0f * k, 1.0f - k });
+		particles->Emit(kParticleSpark, player->GetPosition() + Vector3{ 0.0f, 0.3f + 2.0f * (1.0f - t), 0.0f }, 2u);
+		warpFlash->SetColor({ 1.0f, 0.9f, 1.0f, k });
+		if (warpTimer >= kWarpInTime) {
+			player->SetBodyScale({ 1.0f, 1.0f, 1.0f });
+			warpFlash->SetColor({ 1.0f, 0.9f, 1.0f, 0.0f });
+			warpPhase = WarpPhase::kNone;
+			warpArrivalRoom = -1;
+		}
+	}
+	warpFlash->Update();
+	UpdateFrozenWorld();
+}
+
+Vector3 StageScene::FindWarpPadPosition(int32_t roomIndex) const
+{
+	// 部屋の真ん中は、宝箱・ガチャ・出入口の通り道なので、少しずらした場所の中から、壁や柱のない場所を探す
+	Vector3 center = map.GetRoomCenter(roomIndex);
+	const Vector2 offsets[] = {
+		{ 4.0f, 4.0f }, { -4.0f, 4.0f }, { 4.0f, -4.0f }, { -4.0f, -4.0f },
+		{ 5.0f, 3.0f }, { -5.0f, 3.0f }, { 5.0f, -3.0f }, { -5.0f, -3.0f },
+		{ 0.0f, 4.0f }, { 0.0f, -4.0f }, { 4.0f, 0.0f }, { -4.0f, 0.0f },
+		{ 3.0f, 3.0f }, { -3.0f, 3.0f }, { 3.0f, -3.0f }, { -3.0f, -3.0f },
+	};
+	for (const Vector2& offset : offsets) {
+		Vector3 position = center + Vector3{ offset.x, 0.0f, offset.y };
+		// 陣の大きさ（半径1.2）の範囲に、壁や柱がないか（真ん中と、まわり8方向を見る）
+		bool free = !map.IsSolidAt(position);
+		for (int32_t n = 0; n < 8 && free; ++n) {
+			float angle = std::numbers::pi_v<float> * 2.0f * static_cast<float>(n) / 8.0f;
+			free = !map.IsSolidAt(position + Vector3{ std::sin(angle) * 1.3f, 0.0f, std::cos(angle) * 1.3f });
+		}
+		if (free) {
+			return position;
+		}
+	}
+	return center + Vector3{ 4.0f, 0.0f, 4.0f };
+}
+
+void StageScene::UpdateWarpPads()
+{
+	for (WarpPad& pad : warpPads) {
+		// 使えるか：行ったことがあって、敵を倒しきった部屋
+		size_t room = static_cast<size_t>(pad.room);
+		bool active = roomVisited[room] && roomStates[room] == RoomState::kCleared;
+		if (active && !pad.wasActive) {
+			// 使えるようになった瞬間：光が弾ける
+			ParticleManager::GetInstance()->Emit(kParticleSpark, pad.position + Vector3{ 0.0f, 0.5f, 0.0f }, 30u);
+			shake = (std::min)(1.0f, shake + 0.15f);
+		}
+		pad.wasActive = active;
+
+		Object3d* object = active ? pad.on.get() : pad.off.get();
+		float pulse = 1.0f;
+		float spin = 0.0f;
+		float y = 0.0f;
+		if (active) {
+			// 光っている陣は、ゆっくり回って、ふわっと明滅する。着いた直後の陣は、強く光る
+			spin = shakeTime * 0.8f;
+			pulse = 1.0f + 0.05f * std::sin(shakeTime * 3.0f);
+			if (pad.room == warpArrivalRoom) {
+				pulse += 0.25f * std::sin(shakeTime * 18.0f);
+				spin = shakeTime * 4.0f;
+			}
+			// 近くにいるとき、時々光の粒を出す
+			if (!isGameOver && Length(player->GetPosition() - pad.position) < 12.0f && static_cast<int32_t>(shakeTime * 60.0f) % 30 == 0) {
+				ParticleManager::GetInstance()->Emit(kParticleSpark, pad.position + Vector3{ 0.0f, 0.4f, 0.0f }, 1u);
+			}
+		}
+		object->SetCamera(camera);
+		object->SetScale({ kWarpPadScale * pulse, kWarpPadScale, kWarpPadScale * pulse });
+		object->SetRotate({ 0.0f, spin, 0.0f });
+		object->SetTranslate(pad.position + Vector3{ 0.0f, y, 0.0f });
+		object->Update();
+		pad.shown = true; // 行ったことのない部屋の陣も、灰色で見える
+		pad.isActive = active;
+	}
+}
+
 void StageScene::Draw()
 {
 	// 3Dの描画（不透明）
@@ -1411,6 +1724,12 @@ void StageScene::Draw()
 	if (boss) {
 		boss->Draw();
 	}
+	// ワープの転送陣（行ったことのある部屋のものだけ。使えるものは光る色、使えないものは灰色）
+	for (const WarpPad& pad : warpPads) {
+		if (pad.shown) {
+			(pad.isActive ? pad.on : pad.off)->Draw();
+		}
+	}
 	if (layout.exitRoom >= 0) {
 		stairs->Draw();
 		portal->Draw();
@@ -1430,6 +1749,11 @@ void StageScene::Draw()
 	buildHud.Draw();
 	inventoryHud.Draw();
 	hud.Draw();
+	warpMap.Draw(); // 大きなマップ（開いているときだけ）
+	if (warpPhase != WarpPhase::kNone) {
+		warpFlash->Draw(); // ワープの光
+	}
+	ui.Draw(); // 文字・メニュー（一番手前）
 	growthChoice.Draw();
 	confirmDialog.Draw();
 	if (nearGacha && !growthChoice.IsOpen() && !confirmDialog.IsOpen() && !gachaEffect.IsPlaying() && !isGameOver && !isGameClear) {
@@ -1451,7 +1775,7 @@ void StageScene::DrawDebugWindow()
 {
 #ifdef USE_IMGUI
 	ImGui::Begin("Stage");
-	ImGui::Text("WASD:move  Mouse:aim  LClick:shoot  RClick/Space:roll  Esc:select");
+	ImGui::Text("Mouse:aim  LClick:shoot  RClick:roll  Esc:pause (keys: see Pause > Settings)");
 	if (isGameOver) {
 		ImGui::TextColored({ 1.0f, 0.3f, 0.3f, 1.0f }, "GAME OVER  Space/Pad A: retry  Esc/Pad B: select");
 	}
@@ -1528,6 +1852,39 @@ void StageScene::DrawDebugWindow()
 		player->SetPosition(map.GetRoomCenter(layout.bossRoom) + Vector3{ 0.0f, 0.0f, -6.0f });
 	}
 	ImGui::Checkbox("God Mode (no damage)", &godMode);
+	// テスト用：ミニマップ（と大きなマップ）を全部見えるようにする
+	if (ImGui::Button("Reveal Full Map")) {
+		std::fill(roomVisited.begin(), roomVisited.end(), true);
+	}
+	ImGui::SameLine();
+	// テスト用：マップの全部の部屋で、敵を倒したことにする（扉も全部開く）
+	if (ImGui::Button("Clear All Rooms")) {
+		bullets.ClearEnemyBullets();
+		if (fightingRoom >= 0 && !boss) {
+			enemies.clear(); // 戦闘中の部屋の敵を消す（ボスは下で、倒したことにする）
+		}
+		if (boss && fightingRoom >= 0) {
+			DamageBoss(1.0e9f); // ボス戦中なら、いつもの流れで倒れる演出と報酬へ進める
+		}
+		for (size_t i = 0; i < layout.rooms.size(); ++i) {
+			if (roomStates[i] == RoomState::kCleared || (boss && static_cast<int32_t>(i) == fightingRoom)) {
+				continue;
+			}
+			roomStates[i] = RoomState::kCleared;
+			map.SetRoomLocked(static_cast<int32_t>(i), false);
+			if (layout.rooms[i].type == RoomType::kBoss) {
+				// ボス部屋もクリア：出口の小部屋を開ける
+				bossCleared = true;
+				if (layout.exitRoom >= 0) {
+					exitOpen = true;
+					map.SetRoomLocked(layout.exitRoom, false);
+				}
+			}
+			if (static_cast<int32_t>(i) == fightingRoom) {
+				fightingRoom = -1;
+			}
+		}
+	}
 	if (ImGui::CollapsingHeader("Build", ImGuiTreeNodeFlags_DefaultOpen)) {
 		const char* statNames[] = { "Move Speed (Charger)", "Range (Shooter)", "Fire Rate (Swarm)", "Damage (Tank)" };
 		for (size_t i = 0; i < static_cast<size_t>(GrowthStat::kCount); ++i) {

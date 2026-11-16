@@ -5,6 +5,7 @@
 #include "BaseScene.h"
 #include "Sprite.h"
 #include "Object3d.h"
+#include "SettingsMenu.h"
 
 // 前方宣言（ヘッダではポインタしか使わないのでインクルードしない）
 class DirectXCommon;
@@ -30,6 +31,10 @@ private: // メンバ変数
 	// エンジン層の汎用システム（シングルトンから取得する。deleteしない）
 	DirectXCommon* dxCommon = nullptr;
 	SpriteCommon* spriteCommon = nullptr;
+
+	// 設定画面（キー配置・音量）
+	SettingsMenu settingsMenu;
+	UiKit ui;
 
 	// タイトルのスプライト
 	std::unique_ptr<Sprite> titleSprite;

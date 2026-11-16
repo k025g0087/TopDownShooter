@@ -3,6 +3,7 @@
 #include "Input.h"
 #include "Camera.h"
 #include "WinApp.h"
+#include "GameSettings.h"
 
 using namespace MathUtility;
 
@@ -19,9 +20,11 @@ PlayerInput PlayerInputReader::Read(Input* input, const Camera* camera, const Ve
 
 	// ---- 最後に触った機器を判定する ----
 	const Vector2& mousePosition = input->GetMousePosition();
+	GameSettings* settings = GameSettings::GetInstance();
 	bool keyboardMouseUsed =
-		input->PushKey(DIK_W) || input->PushKey(DIK_A) || input->PushKey(DIK_S) || input->PushKey(DIK_D) ||
-		input->PushKey(DIK_SPACE) ||
+		settings->Push(input, GameAction::kMoveUp) || settings->Push(input, GameAction::kMoveDown) ||
+		settings->Push(input, GameAction::kMoveLeft) || settings->Push(input, GameAction::kMoveRight) ||
+		settings->Push(input, GameAction::kRoll) ||
 		input->PushMouse(Input::MouseButton::kLeft) || input->PushMouse(Input::MouseButton::kRight) ||
 		Length(mousePosition - lastMousePosition) > 2.0f;
 	lastMousePosition = mousePosition;
@@ -38,10 +41,10 @@ PlayerInput PlayerInputReader::Read(Input* input, const Camera* camera, const Ve
 
 	// ---- 移動：キーボード（WASD）とスティックの、大きい方 ----
 	Vector2 keyMove = { 0.0f, 0.0f };
-	if (input->PushKey(DIK_D)) { keyMove.x += 1.0f; }
-	if (input->PushKey(DIK_A)) { keyMove.x -= 1.0f; }
-	if (input->PushKey(DIK_W)) { keyMove.y += 1.0f; }
-	if (input->PushKey(DIK_S)) { keyMove.y -= 1.0f; }
+	if (settings->Push(input, GameAction::kMoveRight)) { keyMove.x += 1.0f; }
+	if (settings->Push(input, GameAction::kMoveLeft)) { keyMove.x -= 1.0f; }
+	if (settings->Push(input, GameAction::kMoveUp)) { keyMove.y += 1.0f; }
+	if (settings->Push(input, GameAction::kMoveDown)) { keyMove.y -= 1.0f; }
 	// 斜めでも速さが同じになるように長さを1までにする
 	if (Length(keyMove) > 1.0f) {
 		keyMove = Normalize(keyMove);
@@ -71,7 +74,7 @@ PlayerInput PlayerInputReader::Read(Input* input, const Camera* camera, const Ve
 
 	// ---- 撃つ・ロール ----
 	result.fire = input->PushMouse(Input::MouseButton::kLeft) || input->GetRightTrigger() > kTriggerThreshold;
-	result.roll = input->TriggerMouse(Input::MouseButton::kRight) || input->TriggerKey(DIK_SPACE) ||
+	result.roll = input->TriggerMouse(Input::MouseButton::kRight) || settings->Trigger(input, GameAction::kRoll) ||
 		input->TriggerPad(XINPUT_GAMEPAD_LEFT_SHOULDER) || input->TriggerPad(XINPUT_GAMEPAD_A);
 	// 左トリガーは「深く押した瞬間」をロールにする
 	bool isLeftTrigger = input->GetLeftTrigger() > kTriggerThreshold;

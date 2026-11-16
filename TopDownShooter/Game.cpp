@@ -4,16 +4,22 @@
 #include "ImGuiManager.h"
 #include "SceneManager.h"
 #include "SceneFactory.h"
+#include "SoundManager.h"
+#include "GameSettings.h"
 
 void Game::Initialize()
 {
 	// 基盤システムの初期化
 	Framework::Initialize();
 
+	// 保存してある音量を反映する（キー配置は GameSettings が最初に使われたとき読み込まれる）
+	SoundManager::GetInstance()->SetMasterVolume(GameSettings::GetInstance()->GetMasterVolume());
+
 	// シーンファクトリーを生成し、マネージャにセット
 	sceneFactory_ = std::make_unique<SceneFactory>();
 	SceneManager::GetInstance()->SetSceneFactory(sceneFactory_.get());
 	// シーンマネージャに最初のシーンをセット（初期化はシーンマネージャ内で呼ばれる）
+	// エンジンのロゴを出してから、タイトルへ移る
 	SceneManager::GetInstance()->ChangeSceneWithSplash("TITLE");
 }
 

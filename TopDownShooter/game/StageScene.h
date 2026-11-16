@@ -16,6 +16,9 @@
 #include "BuildHud.h"
 #include "GrowthChoice.h"
 #include "ConfirmDialog.h"
+#include "UiKit.h"
+#include "PauseMenu.h"
+#include "WarpMap.h"
 #include "GachaEffect.h"
 #include "LegendaryWeapon.h"
 #include "ResultScreen.h"
@@ -101,6 +104,12 @@ private: // メンバ関数
 	void DamageEnemy(Enemy& enemy, float damage, const Vector3& direction);
 	// 敵の更新（動き・弾・押し合い・壁）
 	void UpdateEnemies();
+	// 指定の部屋へワープする
+	void WarpToRoom(int32_t roomIndex);
+	void UpdateWarpEffect();
+	void UpdateWarpPads();
+	// 部屋の中で、ワープの転送陣を置く場所を探す
+	Vector3 FindWarpPadPosition(int32_t roomIndex) const;
 	// ひな形で種類が決まっていない敵の種類を、部屋の種類に合わせてランダムに選ぶ
 	EnemyType ChooseRandomEnemyType(RoomType roomType);
 	// 敵の弾・体当たりとプレイヤーの当たり判定
@@ -143,6 +152,14 @@ private: // メンバ変数
 	ShotStyle fireShotStyle; // ドラゴンの炎の弾
 	// 今の部屋の敵（部屋をクリアしたら空にする）
 	std::vector<std::unique_ptr<Enemy>> enemies;
+	// 敵の頭脳（StageScene が、敵みんなの様子を見て、攻撃の許可や陣取りの場所を割り当てる）
+	Vector3 previousPlayerPosition = { 0.0f, 0.0f, 0.0f };
+	Vector3 playerVelocity = { 0.0f, 0.0f, 0.0f }; // プレイヤーの動く速さ（先読みして撃つのに使う）
+	float flowTimer = 0.0f;       // 道順の地図を作り直すまでの時間
+	float comboTimer = 0.0f;      // 射撃のあと、突進が飛び込みやすい時間の残り
+	float rollCooldown = 0.0f;    // ロールの後、先読みをやめている残り時間
+	float enemyClock = 0.0f;      // 敵が陣取る場所をゆっくり回すための時間
+	size_t enemyTurn = 0;         // 許可を配る順番（毎フレームずらして、同じ敵ばかり得しないように）
 	// 弾の hitMask（64ビット）で覚えられる敵の数
 	static inline const size_t kMaxEnemiesInRoom = 63;
 	// ボスに当たったかを覚えるビット（敵は 0〜62 番を使う）
@@ -194,6 +211,10 @@ private: // メンバ変数
 	int32_t runCoins = 0;
 	// 確認画面（次の層へ進む？・帰還する？）と、リザルト
 	ConfirmDialog confirmDialog;
+	// 文字や四角を出す道具（ポーズ・設定・マップの文字）
+	UiKit ui;
+	// ポーズ画面（Escで開く）
+	PauseMenu pauseMenu;
 	// ガチャを回したときの、画面全体の演出
 	GachaEffect gachaEffect;
 	// シークレット：伝説の武器（とても低い確率でガチャから出る。1回の挑戦で1つだけ）
@@ -211,6 +232,27 @@ private: // メンバ変数
 	DungeonLayout layout;
 	DungeonMap map;
 	Minimap minimap;
+	// 大きなマップ（Tabで開く）とワープ
+	WarpMap warpMap;
+	// ワープの転送陣（ワープの部屋に1つずつ）
+	struct WarpPad {
+		int32_t room = -1;
+		Vector3 position = { 0.0f, 0.0f, 0.0f };
+		std::unique_ptr<Object3d> off; // 灰色（まだ使えない）
+		std::unique_ptr<Object3d> on;  // 光る（使える）
+		bool wasActive = false;
+		bool isActive = false;
+		bool shown = false;
+	};
+	std::vector<WarpPad> warpPads;
+	// ワープの演出（縮んで光になる → 行き先に着いて元に戻る）
+	enum class WarpPhase { kNone, kOut, kIn };
+	WarpPhase warpPhase = WarpPhase::kNone;
+	float warpTimer = 0.0f;
+	int32_t warpTarget = -1;
+	int32_t warpArrivalRoom = -1; // 着いた直後の部屋（その部屋の陣を強く光らせる）
+	std::unique_ptr<Sprite> warpFlash; // ワープの光（画面全体の白）
+	std::vector<bool> warpRooms; // ワープの部屋か（部屋ごと）
 	StageHud hud;
 	// ビルド（倒した敵でステータスが伸びる）と、その表示
 	BuildSystem build;
@@ -271,4 +313,12 @@ private: // メンバ変数
 	static inline const float kSpawnDelay = 0.6f;         // 扉が閉まってから敵が出てくるまで（秒）
 	static inline const int32_t kEnemiesWithoutSpawnPoint = 5; // ひな形に e がないときの敵の数
 	static inline const int32_t kSwarmGroupSize = 3;           // 群れの敵は何体まとめて出るか
+	static inline const float kWarpOutTime = 0.6f;             // ワープ：縮んで光になるまで（秒）
+	static inline const float kWarpInTime = 0.6f;              // ワープ：着いて元に戻るまで（秒）
+	static inline const float kWarpPadScale = 0.65f;           // ワープの転送陣の大きさ（帰還の陣を1とする）
+	static inline const float kLeadRollCooldown = 0.5f;        // ロールの後、敵が先読みをやめている時間（秒）
+	static inline const int32_t kWarpDepthInterval = 3;        // 何部屋目ごとの戦闘部屋にワープを置くか
+	static inline const int32_t kMaxAttackers = 2;             // 同時に攻撃できる敵の数（群れとそれ以外で、別々に数える）
+	static inline const float kFlowInterval = 0.1f;            // 道順の地図を作り直す間隔（秒）
+	static inline const float kComboTime = 0.9f;               // 射撃のあと、突進が連携で飛び込める時間（秒）
 };

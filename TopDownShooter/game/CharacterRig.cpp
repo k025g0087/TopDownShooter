@@ -69,6 +69,15 @@ void CharacterRig::Update(const State& state, float deltaTime)
 		ApplyAttack(poses);
 	}
 	ApplyHurt(poses, state.hurt);
+	// 体全体の大きさ（足元を中心に）
+	for (size_t i = 0; i < kPartCount; ++i) {
+		poses[i].offset.x *= state.bodyScale.x;
+		poses[i].offset.y *= state.bodyScale.y;
+		poses[i].offset.z *= state.bodyScale.z;
+		poses[i].scale.x *= state.bodyScale.x;
+		poses[i].scale.y *= state.bodyScale.y;
+		poses[i].scale.z *= state.bodyScale.z;
+	}
 
 	// キャラの向きに回して、世界の位置にする
 	for (size_t i = 0; i < kPartCount; ++i) {

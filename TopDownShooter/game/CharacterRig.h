@@ -25,6 +25,7 @@ public:
 		bool rolling = false;      // ロール中か
 		float rollProgress = 0.0f; // ロールの進み具合（0→1）
 		float hurt = 0.0f;         // のけぞりの強さ（ダメージを受けた瞬間が1で、だんだん0へ）
+		Vector3 bodyScale = { 1.0f, 1.0f, 1.0f }; // 体全体の大きさ（ワープで縮んだり伸びたりする演出に使う。足元を中心に変える）
 	};
 
 	void Initialize(const CharacterParts& parts);

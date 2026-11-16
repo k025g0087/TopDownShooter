@@ -107,6 +107,7 @@ void Player::UpdateModel(float deltaTime)
 	state.rolling = isRolling;
 	state.rollProgress = rollTimer / kRollTime;
 	state.hurt = hurtTimer / kHurtTime;
+	state.bodyScale = bodyScale;
 	rig.Update(state, deltaTime);
 }
 

@@ -49,6 +49,14 @@ public:
 	// その場所が通れないか（弾が壁に当たったかを見るのに使う）
 	bool IsSolidAt(const Vector3& position) const;
 
+	// 2点の間に壁がないか（radius：通り抜ける円の半径。壁越しに撃たないか・見えているかの判定に使う）
+	bool HasLineOfSight(const Vector3& from, const Vector3& to, float radius) const;
+	// 道順の地図を作り直す：target のマスからの歩数を、部屋（と、扉の外の1マス）の中のマスに書く
+	// 敵が壁や柱をよけてプレイヤーのところへ行くための地図。毎フレームでなく、少しおきに呼べばよい
+	void UpdateFlowField(const Vector3& target, int32_t roomIndex);
+	// position から target へ近づくために、次に向かう向き（道順の地図がなければ長さ0）
+	Vector3 GetFlowDirection(const Vector3& position) const;
+
 	// その場所がどの部屋の中か（margin：壁から何マス内側までを部屋の中とするか）。部屋の外（通路）なら -1
 	int32_t GetRoomIndexAt(const Vector3& position, int32_t margin) const;
 	// 部屋の扉を閉める・開ける
@@ -84,6 +92,8 @@ private:
 	void BuildTemplateRoom(RoomNode& room, RoomArea& area, const RoomTemplateLibrary& library, std::mt19937& random);
 	// 出口の小部屋を書き込む（ひな形は使わず、まわりを壁で埋めた小さな部屋にする）
 	void BuildExitRoom(const RoomArea& area);
+	// 宝箱の小部屋を書き込む（ひな形は使わず、まわりを壁で埋めた小さな部屋にする。扉のある向きには道を通す）
+	void BuildTreasureRoom(const RoomNode& room, const RoomArea& area);
 	// 見た目のオブジェクトを1つ作る
 	void AddObject(const char* modelName, const Vector3& position, const Vector2& halfSize, int32_t doorRoom);
 
@@ -95,6 +105,10 @@ private:
 	// 扉のマスが、どの部屋の扉か（扉でなければ -1）
 	std::vector<int32_t> doorOwners;
 	std::vector<RoomArea> roomAreas;
+	// 道順の地図（マスごとの、目的地までの歩数。-1 は行けない・未計算）
+	std::vector<int16_t> flowDistance;
+	int32_t flowMinX = 0, flowMinY = 0, flowMaxX = -1, flowMaxY = -1; // 地図を作った範囲
+	bool IsFlowWalkable(int32_t x, int32_t y) const;
 	DungeonLayout layout;
 	// 出口の小部屋
 	Vector3 exitStairsPosition = { 0.0f, 0.0f, 0.0f };
@@ -106,6 +120,11 @@ private:
 	static inline const int32_t kExitRight = 12;
 	static inline const int32_t kExitTop = 3;
 	static inline const int32_t kExitBottom = 9;
+	// 宝箱の小部屋の、床のある範囲（部屋の中のマス。両端を含む）。7x5マスで、真ん中に宝箱を置く
+	static inline const int32_t kTreasureLeft = 5;
+	static inline const int32_t kTreasureRight = 11;
+	static inline const int32_t kTreasureTop = 4;
+	static inline const int32_t kTreasureBottom = 8;
 
 	// 見た目（壁・扉・床）。doorRoom：扉なら持ち主の部屋（閉まっているときだけ描く）、扉でなければ -1
 	struct MapObject {
