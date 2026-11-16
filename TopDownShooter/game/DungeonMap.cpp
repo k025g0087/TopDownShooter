@@ -13,33 +13,19 @@ void DungeonMap::Build(const DungeonLayout& sourceLayout, const RoomTemplateLibr
 	doorOwners.assign(static_cast<size_t>(kMapWidth * kMapHeight), -1);
 	roomAreas.assign(layout.rooms.size(), RoomArea{});
 	objects.clear();
+	exitStairsTileX = -1;
+	exitStairsTileY = -1;
 
 	// ---- 部屋：ひな形をマップに書き込む ----
 	for (size_t i = 0; i < layout.rooms.size(); ++i) {
 		RoomNode& room = layout.rooms[i];
-		const std::vector<RoomTemplate>& templates = library.Get(room.type);
-		std::uniform_int_distribution<size_t> templateDistribution(0, templates.size() - 1);
-		room.templateIndex = static_cast<int32_t>(templateDistribution(random));
-		const RoomTemplate& roomTemplate = templates[static_cast<size_t>(room.templateIndex)];
-
 		RoomArea& area = roomAreas[i];
 		area.originX = room.gridX * kSlotWidth;
 		area.originY = room.gridY * kSlotHeight;
-		for (int32_t y = 0; y < kRoomHeight; ++y) {
-			for (int32_t x = 0; x < kRoomWidth; ++x) {
-				char c = roomTemplate.Get(x, y);
-				int32_t mapX = area.originX + x;
-				int32_t mapY = area.originY + y;
-				if (c == '#' || c == 'o') {
-					SetTile(mapX, mapY, Tile::kWall);
-				} else {
-					SetTile(mapX, mapY, Tile::kFloor);
-					// 敵が出てくる場所（e：ランダム／c：突進／s：射撃／w：群れ／t：重装）
-					if (c == 'e' || c == 'c' || c == 's' || c == 'w' || c == 't') {
-						area.spawnPoints.push_back({ TileCenter(mapX, mapY), c });
-					}
-				}
-			}
+		if (room.type == RoomType::kExit) {
+			BuildExitRoom(area);
+		} else {
+			BuildTemplateRoom(room, area, library, random);
 		}
 
 		// ---- 扉：隣に部屋がある向きだけ、外の壁の真ん中3マスを扉にする ----
@@ -96,16 +82,33 @@ void DungeonMap::Build(const DungeonLayout& sourceLayout, const RoomTemplateLibr
 	for (size_t i = 0; i < layout.rooms.size(); ++i) {
 		const RoomNode& room = layout.rooms[i];
 		const RoomArea& area = roomAreas[i];
+		const Vector2 tileHalfSize = { kTileSize * 0.5f, kTileSize * 0.5f };
+		if (room.type == RoomType::kExit) {
+			// 出口の小部屋：床のあるマスに1枚ずつ置く（階段の穴のところは置かない）
+			for (int32_t y = 0; y < kRoomHeight; ++y) {
+				for (int32_t x = 0; x < kRoomWidth; ++x) {
+					int32_t mapX = area.originX + x;
+					int32_t mapY = area.originY + y;
+					bool inStairs = (mapX == exitStairsTileX && mapY == exitStairsTileY);
+					if (GetTile(mapX, mapY) != Tile::kWall && !inStairs) {
+						AddObject(kModelFloorExit, TileCenter(mapX, mapY), tileHalfSize, -1);
+					}
+				}
+			}
+		}
 		const char* floorModel = kModelFloorRoom;
 		if (room.type == RoomType::kBoss) {
 			floorModel = kModelFloorBoss;
 		} else if (room.type == RoomType::kTreasure) {
 			floorModel = kModelFloorTreasure;
+		} else if (room.type == RoomType::kShop) {
+			floorModel = kModelFloorShop;
 		}
 		const Vector2 roomHalf = { static_cast<float>(kRoomWidth) * kTileSize * 0.5f, static_cast<float>(kRoomHeight) * kTileSize * 0.5f };
-		AddObject(floorModel, GetRoomCenter(static_cast<int32_t>(i)), roomHalf, -1);
+		if (room.type != RoomType::kExit) {
+			AddObject(floorModel, GetRoomCenter(static_cast<int32_t>(i)), roomHalf, -1);
+		}
 
-		const Vector2 tileHalfSize = { kTileSize * 0.5f, kTileSize * 0.5f };
 		if (room.neighbors[kDirectionRight] >= 0) {
 			for (int32_t x = kRoomWidth; x < kSlotWidth; ++x) {
 				for (int32_t k = -kDoorHalfWidth; k <= kDoorHalfWidth; ++k) {
@@ -149,6 +152,74 @@ void DungeonMap::Build(const DungeonLayout& sourceLayout, const RoomTemplateLibr
 			}
 		}
 	}
+}
+
+void DungeonMap::BuildTemplateRoom(RoomNode& room, RoomArea& area, const RoomTemplateLibrary& library, std::mt19937& random)
+{
+	// 種類に合うひな形をランダムに1つ選んで、1文字ずつマップに書き込む
+	const std::vector<RoomTemplate>& templates = library.Get(room.type);
+	std::uniform_int_distribution<size_t> templateDistribution(0, templates.size() - 1);
+	room.templateIndex = static_cast<int32_t>(templateDistribution(random));
+	const RoomTemplate& roomTemplate = templates[static_cast<size_t>(room.templateIndex)];
+	for (int32_t y = 0; y < kRoomHeight; ++y) {
+		for (int32_t x = 0; x < kRoomWidth; ++x) {
+			char c = roomTemplate.Get(x, y);
+			int32_t mapX = area.originX + x;
+			int32_t mapY = area.originY + y;
+			if (c == '#' || c == 'o') {
+				SetTile(mapX, mapY, Tile::kWall);
+			} else {
+				SetTile(mapX, mapY, Tile::kFloor);
+				// 敵が出てくる場所（e：ランダム／c：突進／s：射撃／w：群れ／t：重装）
+				if (c == 'e' || c == 'c' || c == 's' || c == 'w' || c == 't') {
+					area.spawnPoints.push_back({ TileCenter(mapX, mapY), c });
+				}
+			}
+		}
+	}
+}
+
+void DungeonMap::BuildExitRoom(const RoomArea& area)
+{
+	// まわりは全部壁。真ん中の小さな四角だけ床にする
+	for (int32_t y = 0; y < kRoomHeight; ++y) {
+		for (int32_t x = 0; x < kRoomWidth; ++x) {
+			bool inside = x >= kExitLeft && x <= kExitRight && y >= kExitTop && y <= kExitBottom;
+			SetTile(area.originX + x, area.originY + y, inside ? Tile::kFloor : Tile::kWall);
+		}
+	}
+	// 入口の扉から小さな四角まで、1マス幅の道を通す
+	int32_t direction = layout.exitDirection;
+	for (int32_t step = 1; step < kRoomWidth; ++step) {
+		int32_t x = kDoorCenterX, y = kDoorCenterY;
+		switch (direction) {
+		case kDirectionUp: y = step; break;
+		case kDirectionDown: y = kRoomHeight - 1 - step; break;
+		case kDirectionLeft: x = step; break;
+		case kDirectionRight:
+		default: x = kRoomWidth - 1 - step; break;
+		}
+		if (x >= kExitLeft && x <= kExitRight && y >= kExitTop && y <= kExitBottom) {
+			break;
+		}
+		SetTile(area.originX + x, area.originY + y, Tile::kFloor);
+	}
+	// 階段（1マスの穴）と転送陣：入口の道をふさがないように、道をはさんで両側に並べる
+	int32_t stairsX = 0, stairsY = 0;     // 階段の穴のマス（部屋の中）
+	int32_t portalX = 0, portalY = 0;     // 転送陣のマス（部屋の中）
+	if (direction == kDirectionUp || direction == kDirectionDown) {
+		// 道は縦（真ん中の列）。階段は左、転送陣は右
+		stairsX = 6; stairsY = 6;
+		portalX = 10; portalY = 6;
+	} else {
+		// 道は横（真ん中の行）。階段は奥、転送陣は手前
+		stairsX = 8; stairsY = 4;
+		portalX = 8; portalY = 8;
+	}
+	exitStairsTileX = area.originX + stairsX;
+	exitStairsTileY = area.originY + stairsY;
+	exitStairsPosition = TileCenter(exitStairsTileX, exitStairsTileY);
+	exitPortalPosition = TileCenter(area.originX + portalX, area.originY + portalY);
 }
 
 void DungeonMap::AddObject(const char* modelName, const Vector3& position, const Vector2& halfSize, int32_t doorRoom)

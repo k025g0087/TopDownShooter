@@ -142,7 +142,7 @@ int32_t GrowthChoice::Update(Input* input, float deltaTime)
 
 	// 決定（開いてすぐは受けない。撃っていたボタンをそのまま押してしまわないように）
 	if (openTime >= kInputDelay) {
-		bool decide = input->TriggerKey(DIK_RETURN) || input->TriggerKey(DIK_SPACE) || input->TriggerPad(XINPUT_GAMEPAD_A);
+		bool decide = input->TriggerKey(DIK_SPACE) || input->TriggerPad(XINPUT_GAMEPAD_A);
 		if (input->TriggerMouse(Input::MouseButton::kLeft) && hovered >= 0) {
 			selected = static_cast<size_t>(hovered);
 			decide = true;

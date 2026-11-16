@@ -111,7 +111,7 @@ bool DungeonGenerator::TryGenerate(std::mt19937& random, int32_t roomCount, Dung
 	// ボス部屋：スタートから一番遠い行き止まり
 	std::sort(deadEnds.begin(), deadEnds.end(), [&layout](int32_t a, int32_t b) {
 		return layout.rooms[static_cast<size_t>(a)].depth > layout.rooms[static_cast<size_t>(b)].depth;
-	});
+		});
 	layout.bossRoom = deadEnds[0];
 	layout.rooms[static_cast<size_t>(layout.bossRoom)].type = RoomType::kBoss;
 	// ボス部屋がスタートに近すぎると探索にならないので、作り直す
@@ -119,10 +119,72 @@ bool DungeonGenerator::TryGenerate(std::mt19937& random, int32_t roomCount, Dung
 		return false;
 	}
 
+	// 出口の小部屋：ボス部屋の隣の空いているマスに足す（ボス部屋以外とは隣り合わないマスだけ。行き止まりのままにする）
+	{
+		const RoomNode& boss = layout.rooms[static_cast<size_t>(layout.bossRoom)];
+		std::vector<int32_t> exitDirections;
+		for (int32_t direction = 0; direction < kDirectionCount; ++direction) {
+			int32_t x = boss.gridX + OffsetX(direction);
+			int32_t y = boss.gridY + OffsetY(direction);
+			if (x < 0 || y < 0 || x >= kGridSize || y >= kGridSize || layout.GetRoomAtCell(x, y) >= 0) {
+				continue;
+			}
+			bool touchesOther = false;
+			for (int32_t d = 0; d < kDirectionCount; ++d) {
+				int32_t neighbor = layout.GetRoomAtCell(x + OffsetX(d), y + OffsetY(d));
+				if (neighbor >= 0 && neighbor != layout.bossRoom) {
+					touchesOther = true;
+				}
+			}
+			if (!touchesOther) {
+				exitDirections.push_back(direction);
+			}
+		}
+		// 置ける場所がなければ作り直す
+		if (exitDirections.empty()) {
+			return false;
+		}
+		std::uniform_int_distribution<size_t> exitDistribution(0, exitDirections.size() - 1);
+		int32_t direction = exitDirections[exitDistribution(random)];
+		RoomNode exit;
+		exit.gridX = boss.gridX + OffsetX(direction);
+		exit.gridY = boss.gridY + OffsetY(direction);
+		exit.type = RoomType::kExit;
+		exit.depth = boss.depth + 1;
+		int32_t exitIndex = static_cast<int32_t>(layout.rooms.size());
+		exit.neighbors[static_cast<size_t>(Opposite(direction))] = layout.bossRoom;
+		layout.rooms[static_cast<size_t>(layout.bossRoom)].neighbors[static_cast<size_t>(direction)] = exitIndex;
+		layout.rooms.push_back(exit);
+		layout.cellToRoom[static_cast<size_t>(exit.gridY * kGridSize + exit.gridX)] = exitIndex;
+		layout.exitRoom = exitIndex;
+		layout.exitDirection = Opposite(direction);
+	}
+
 	// 宝部屋：残りの行き止まりからランダム
 	std::uniform_int_distribution<size_t> deadEndDistribution(1, deadEnds.size() - 1);
 	layout.treasureRoom = deadEnds[deadEndDistribution(random)];
 	layout.rooms[static_cast<size_t>(layout.treasureRoom)].type = RoomType::kTreasure;
+
+	// ショップ：残りの行き止まりがあればそこ、なければふつうの部屋を1つショップにする
+	std::vector<int32_t> shopCandidates;
+	for (int32_t index : deadEnds) {
+		if (index != layout.bossRoom && index != layout.treasureRoom) {
+			shopCandidates.push_back(index);
+		}
+	}
+	if (shopCandidates.empty()) {
+		for (size_t i = 1; i < layout.rooms.size(); ++i) {
+			if (layout.rooms[i].type == RoomType::kCombat) {
+				shopCandidates.push_back(static_cast<int32_t>(i));
+			}
+		}
+	}
+	if (shopCandidates.empty()) {
+		return false;
+	}
+	std::uniform_int_distribution<size_t> shopDistribution(0, shopCandidates.size() - 1);
+	layout.shopRoom = shopCandidates[shopDistribution(random)];
+	layout.rooms[static_cast<size_t>(layout.shopRoom)].type = RoomType::kShop;
 	layout.startRoom = 0;
 	return true;
 }

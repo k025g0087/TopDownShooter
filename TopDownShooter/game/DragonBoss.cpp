@@ -16,7 +16,7 @@ namespace {
 	const float kSweepWindupTime = 0.6f;
 	const float kSweepTime = 0.5f;
 	const float kTakeoffTime = 0.6f;
-	const float kFlyingTime = 3.0f;
+	const float kFlyingTime = 2.2f; // 空にいる間は攻撃が当たらないので短めにする
 	const float kLandingTime = 0.5f;
 	const float kPhaseChangeTime = 1.5f;
 	const float kDyingTime = 2.5f;
@@ -40,6 +40,7 @@ void DragonBoss::Initialize(const Vector3& startPosition, const Vector3& center,
 	height = 0.0f;
 	hp = kMaxHp;
 	isPhase2 = false;
+	attacksSinceRain = 0;
 	time = 0.0f;
 
 	body = std::make_unique<Object3d>();
@@ -239,20 +240,27 @@ void DragonBoss::ChooseNextAttack(float distance)
 	// 近ければなぎ払いが多め。同じ攻撃は続けにくくする
 	float sweep = (distance < 5.5f) ? 60.0f : 5.0f;
 	float breath = 45.0f;
-	float rain = 30.0f;
 	if (lastAttack == State::kSweepWindup) { sweep *= 0.3f; }
 	if (lastAttack == State::kBreathWindup) { breath *= 0.4f; }
-	if (lastAttack == State::kTakeoff) { rain *= 0.2f; }
+
+	// 空を飛ぶ攻撃は、プレイヤーの攻撃が当たらない時間なので出しすぎない。
+	// 地上の攻撃を最低でも何回かはさんだあとだけ選べる（第2形態は少し早い）
+	int32_t needGround = isPhase2 ? 3 : 4;
+	float rain = (attacksSinceRain >= needGround) ? 18.0f : 0.0f;
+
 	float total = sweep + breath + rain;
 	float roll = RandomRange(0.0f, total);
 	if (roll < sweep) {
 		lastAttack = State::kSweepWindup;
+		++attacksSinceRain;
 		ChangeState(State::kSweepWindup, kSweepWindupTime);
 	} else if (roll < sweep + breath) {
 		lastAttack = State::kBreathWindup;
+		++attacksSinceRain;
 		ChangeState(State::kBreathWindup, kBreathWindupTime);
 	} else {
 		lastAttack = State::kTakeoff;
+		attacksSinceRain = 0;
 		ChangeState(State::kTakeoff, kTakeoffTime);
 	}
 }

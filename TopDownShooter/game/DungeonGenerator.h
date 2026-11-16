@@ -24,6 +24,8 @@ enum class RoomType {
 	kCombat,   // 戦闘部屋（入ると扉が閉まって、全部倒すと開く）
 	kTreasure, // 宝部屋（中身はあとで決める）
 	kBoss,     // ボス部屋（一番遠い行き止まり）
+	kShop,     // ショップ（ガチャがある。敵なし）
+	kExit,     // 出口の小部屋（ボス部屋の先。下へ行く階段と帰還の転送陣がある。敵なし）
 };
 
 // 向き（部屋のつながりに使う。上＝画面の上＝奥）
@@ -53,6 +55,9 @@ struct DungeonLayout {
 	int32_t startRoom = 0;
 	int32_t bossRoom = -1;
 	int32_t treasureRoom = -1;
+	int32_t shopRoom = -1;
+	int32_t exitRoom = -1;
+	int32_t exitDirection = kDirectionUp; // 出口の小部屋から見た、ボス部屋の向き（入口の向き）
 
 	int32_t GetRoomAtCell(int32_t gridX, int32_t gridY) const;
 };
@@ -61,7 +66,7 @@ struct DungeonLayout {
 class DungeonGenerator
 {
 public:
-	// roomCount：部屋の数（スタート・ボス・宝部屋を含む）
+	// roomCount：部屋の数（スタート・ボス・宝部屋を含む。出口の小部屋は数に入れない）
 	static DungeonLayout Generate(std::mt19937& random, int32_t roomCount);
 
 	// 向きの反対

@@ -92,6 +92,7 @@ private:
 	float hitTimer = 0.0f;      // 当たったときの膨らみ
 	float time = 0.0f;
 	State lastAttack = State::kMove; // 同じ攻撃が続きすぎないように
+	int32_t attacksSinceRain = 0;    // 最後に空を飛んでから、地上の攻撃を何回したか
 
 	// ---- 調整用の数値 ----
 	static inline const float kMaxHp = 450.0f;

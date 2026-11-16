@@ -7,13 +7,13 @@
     <Platform Name="x86" />
   </Configurations>
   <Folder Name="/MacaronEngine/">
-    <Project Path="../MacaronEngine/project/externals/DirectXTex/DirectXTex_Desktop_2022_Win10.vcxproj">
+    <Project Path="../MacaronEngine/project/externals/DirectXTex/DirectXTex_Desktop_2022_Win10.vcxproj" Id="371b9fa9-4c90-4ac6-a123-aced756d6c77">
       <Platform Project="x64" />
     </Project>
-    <Project Path="../MacaronEngine/project/externals/imgui/imgui.vcxproj">
+    <Project Path="../MacaronEngine/project/externals/imgui/imgui.vcxproj" Id="b7372d01-376e-4fa1-bd28-1c09f68a7e1d">
       <Platform Project="x64" />
     </Project>
-    <Project Path="../MacaronEngine/project/MacaronEngineLib/MacaronEngineLib.vcxproj" />
+    <Project Path="../MacaronEngine/project/MacaronEngineLib/MacaronEngineLib.vcxproj" Id="1c62cba2-433d-4cdc-a39d-aea7080dbfc3" />
   </Folder>
-  <Project Path="TopDownShooter.vcxproj" />
+  <Project Path="TopDownShooter.vcxproj" Id="7959aa3f-c791-4d81-8c9f-6c33c0fbec91" />
 </Solution>

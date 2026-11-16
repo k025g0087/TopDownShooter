@@ -1,4 +1,5 @@
 #include "Player.h"
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 #include "Object3dCommon.h"
@@ -7,21 +8,21 @@ using namespace MathUtility;
 
 void Player::Initialize(const Vector3& startPosition, const CharacterData& character)
 {
-	object = std::make_unique<Object3d>();
-	object->Initialize(Object3dCommon::GetInstance());
-	object->SetModel(character.modelName);
+	rig.Initialize(character.parts);
+	hurtTimer = 0.0f;
 	stats = character.stats;
 	hp = stats.maxHp;
 	isAlive = true;
 	damageInvincibleTimer = 0.0f;
 	position = startPosition;
-	UpdateModel();
+	UpdateModel(0.0f);
 }
 
 Player::ShotRequest Player::Update(const PlayerInput& input, float deltaTime)
 {
 	ShotRequest shot;
 	damageInvincibleTimer -= deltaTime;
+	hurtTimer = (std::max)(0.0f, hurtTimer - deltaTime);
 	// 倒れた後は何もしない
 	if (!isAlive) {
 		return shot;
@@ -60,9 +61,11 @@ Player::ShotRequest Player::Update(const PlayerInput& input, float deltaTime)
 		shot.shoot = true;
 		shot.direction = direction;
 		shot.position = { position.x + direction.x * kMuzzleDistance, kShotHeight, position.z + direction.z * kMuzzleDistance };
+		// 攻撃の動き（連射が速いときは、次の攻撃までに終わるように短くする）
+		rig.PlayAttack((std::min)(kAttackMotionTime, stats.fireInterval * 0.9f));
 	}
 
-	UpdateModel();
+	UpdateModel(deltaTime);
 	return shot;
 }
 
@@ -92,26 +95,19 @@ void Player::UpdateRoll(float deltaTime)
 void Player::SetPosition(const Vector3& newPosition)
 {
 	position = newPosition;
-	UpdateModel();
+	UpdateModel(0.0f);
 }
 
-void Player::UpdateModel()
+void Player::UpdateModel(float deltaTime)
 {
-	Vector3 scale = { 1.0f, 1.0f, 1.0f };
-	Vector3 rotate = { 0.0f, facingAngle, 0.0f };
-	Vector3 translate = position;
-	if (isRolling) {
-		// ロール中：前へかがんで、つぶれて、小さく跳ねる（転がっているように見せる仮の動き）
-		float t = rollTimer / kRollTime;
-		float wave = std::sin(t * std::numbers::pi_v<float>);
-		rotate.x = 0.9f * wave;
-		scale = { 1.0f + 0.15f * wave, 1.0f - 0.35f * wave, 1.0f + 0.15f * wave };
-		translate.y += 0.25f * wave;
-	}
-	object->SetScale(scale);
-	object->SetRotate(rotate);
-	object->SetTranslate(translate);
-	object->Update();
+	CharacterRig::State state;
+	state.position = position;
+	state.facing = facingAngle;
+	state.moveRate = (stats.moveSpeed > 0.0f) ? Length(velocity) / stats.moveSpeed : 0.0f;
+	state.rolling = isRolling;
+	state.rollProgress = rollTimer / kRollTime;
+	state.hurt = hurtTimer / kHurtTime;
+	rig.Update(state, deltaTime);
 }
 
 bool Player::TakeDamage(int32_t amount)
@@ -121,6 +117,7 @@ bool Player::TakeDamage(int32_t amount)
 	}
 	hp -= amount;
 	damageInvincibleTimer = kDamageInvincibleTime;
+	hurtTimer = kHurtTime;
 	if (hp <= 0) {
 		hp = 0;
 		isAlive = false;
@@ -138,5 +135,5 @@ void Player::Draw()
 	if (damageInvincibleTimer > 0.0f && static_cast<int32_t>(damageInvincibleTimer * 15.0f) % 2 == 0) {
 		return;
 	}
-	object->Draw();
+	rig.Draw();
 }

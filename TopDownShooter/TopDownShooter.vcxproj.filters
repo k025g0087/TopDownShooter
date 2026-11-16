@@ -13,11 +13,11 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
-    <Filter Include="ソース ファイル\game">
-      <UniqueIdentifier>{2d2fe31d-1c8c-4fbc-9177-e7d32f2873bc}</UniqueIdentifier>
-    </Filter>
     <Filter Include="ヘッダー ファイル\game">
       <UniqueIdentifier>{6863399a-f62d-4aa3-83cc-81124a020a1e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ソース ファイル\game">
+      <UniqueIdentifier>{2d2fe31d-1c8c-4fbc-9177-e7d32f2873bc}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -81,6 +81,36 @@
     <ClCompile Include="game\StageScene.cpp">
       <Filter>ソース ファイル\game</Filter>
     </ClCompile>
+    <ClCompile Include="game\Barrier.cpp">
+      <Filter>ソース ファイル\game</Filter>
+    </ClCompile>
+    <ClCompile Include="game\CharacterRig.cpp">
+      <Filter>ソース ファイル\game</Filter>
+    </ClCompile>
+    <ClCompile Include="game\CoinManager.cpp">
+      <Filter>ソース ファイル\game</Filter>
+    </ClCompile>
+    <ClCompile Include="game\InventoryHud.cpp">
+      <Filter>ソース ファイル\game</Filter>
+    </ClCompile>
+    <ClCompile Include="game\ItemData.cpp">
+      <Filter>ソース ファイル\game</Filter>
+    </ClCompile>
+    <ClCompile Include="game\ResultScreen.cpp">
+      <Filter>ソース ファイル\game</Filter>
+    </ClCompile>
+    <ClCompile Include="game\RunRecord.cpp">
+      <Filter>ソース ファイル\game</Filter>
+    </ClCompile>
+    <ClCompile Include="game\ConfirmDialog.cpp">
+      <Filter>ソース ファイル\game</Filter>
+    </ClCompile>
+    <ClCompile Include="game\GachaEffect.cpp">
+      <Filter>ソース ファイル\game</Filter>
+    </ClCompile>
+    <ClCompile Include="game\LegendaryWeapon.cpp">
+      <Filter>ソース ファイル\game</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Game.h">
@@ -141,6 +171,36 @@
       <Filter>ヘッダー ファイル\game</Filter>
     </ClInclude>
     <ClInclude Include="game\StageScene.h">
+      <Filter>ヘッダー ファイル\game</Filter>
+    </ClInclude>
+    <ClInclude Include="game\Barrier.h">
+      <Filter>ヘッダー ファイル\game</Filter>
+    </ClInclude>
+    <ClInclude Include="game\CharacterRig.h">
+      <Filter>ヘッダー ファイル\game</Filter>
+    </ClInclude>
+    <ClInclude Include="game\CoinManager.h">
+      <Filter>ヘッダー ファイル\game</Filter>
+    </ClInclude>
+    <ClInclude Include="game\InventoryHud.h">
+      <Filter>ヘッダー ファイル\game</Filter>
+    </ClInclude>
+    <ClInclude Include="game\ItemData.h">
+      <Filter>ヘッダー ファイル\game</Filter>
+    </ClInclude>
+    <ClInclude Include="game\ResultScreen.h">
+      <Filter>ヘッダー ファイル\game</Filter>
+    </ClInclude>
+    <ClInclude Include="game\RunRecord.h">
+      <Filter>ヘッダー ファイル\game</Filter>
+    </ClInclude>
+    <ClInclude Include="game\ConfirmDialog.h">
+      <Filter>ヘッダー ファイル\game</Filter>
+    </ClInclude>
+    <ClInclude Include="game\GachaEffect.h">
+      <Filter>ヘッダー ファイル\game</Filter>
+    </ClInclude>
+    <ClInclude Include="game\LegendaryWeapon.h">
       <Filter>ヘッダー ファイル\game</Filter>
     </ClInclude>
   </ItemGroup>

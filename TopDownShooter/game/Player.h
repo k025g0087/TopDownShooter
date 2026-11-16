@@ -4,6 +4,7 @@
 #include "Object3d.h"
 #include "PlayerInput.h"
 #include "CharacterData.h"
+#include "CharacterRig.h"
 
 class Camera;
 
@@ -27,7 +28,7 @@ public:
 	// 位置を直す（壁に押し戻されたとき）
 	void SetPosition(const Vector3& newPosition);
 
-	void SetCamera(Camera* camera) { object->SetCamera(camera); }
+	void SetCamera(Camera* camera) { rig.SetCamera(camera); }
 
 	const Vector3& GetPosition() const { return position; }
 	// 当たり判定の半径
@@ -38,6 +39,8 @@ public:
 	bool CanTakeDamage() const { return isAlive && !IsInvincible() && damageInvincibleTimer <= 0.0f; }
 	// ダメージを受ける（倒れたら true）
 	bool TakeDamage(int32_t amount);
+	// ダメージを受けずに、しばらく無敵にする（バリアが割れたときなど。点滅する）
+	void StartInvincible() { damageInvincibleTimer = kDamageInvincibleTime; }
 	bool IsAlive() const { return isAlive; }
 	int32_t GetHp() const { return hp; }
 	int32_t GetMaxHp() const { return stats.maxHp; }
@@ -50,9 +53,13 @@ public:
 private:
 	void UpdateMove(const PlayerInput& input, float deltaTime);
 	void UpdateRoll(float deltaTime);
-	void UpdateModel();
+	// 部品の動きを更新する（deltaTime：0 なら時間を進めずに、位置だけ合わせる）
+	void UpdateModel(float deltaTime);
 
-	std::unique_ptr<Object3d> object;
+	// 見た目（部品に分けて動かす）
+	CharacterRig rig;
+	// ダメージでのけぞる残り時間
+	float hurtTimer = 0.0f;
 	PlayerStats stats;
 
 	Vector3 position = { 0.0f, 0.0f, 0.0f };
@@ -81,4 +88,6 @@ private:
 	static inline const float kRollSpeed = 13.0f;        // ロール中の速さ（最初の速さ。だんだん落ちる）
 	static inline const float kMuzzleDistance = 0.6f;    // 体の中心から弾が出る位置までの距離
 	static inline const float kDamageInvincibleTime = 1.0f; // ダメージを受けた後の無敵の時間（秒）
+	static inline const float kHurtTime = 0.25f;       // のけぞる時間（秒）
+	static inline const float kAttackMotionTime = 0.22f; // 攻撃の動きの長さ（秒）。連射が速いときはそれに合わせて短くする
 };

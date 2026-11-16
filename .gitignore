@@ -375,3 +375,9 @@ settings.txt
 
 TopDownShooter/resources/shaders/
 TopDownShooter/resources/engine/
+
+# TopDownShooter: 実行時にできるファイル
+TopDownShooter/imgui.ini
+TopDownShooter/records.txt
+TopDownShooter/logs/
+TopDownShooter/fullscreen_log.txt

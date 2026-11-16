@@ -57,16 +57,20 @@ void TitleScene::Finalize()
 void TitleScene::Update()
 {
 	Input* input = Input::GetInstance();
-	// ENTERキー・スペースキー・パッドのAで、キャラ選択へ
-	if (input->TriggerKey(DIK_RETURN) || input->TriggerKey(DIK_SPACE) || input->TriggerPad(XINPUT_GAMEPAD_A)) {
+	// スペースキー・パッドのAで、キャラ選択へ
+	if (input->TriggerKey(DIK_SPACE) || input->TriggerPad(XINPUT_GAMEPAD_A)) {
 		// シーン切り替え（次のシーン名を渡すだけ）
 		SceneManager::GetInstance()->ChangeScene("SELECT");
+	}
+	// Gキーで、今までの機能テストのシーンへ（動作確認用に残しておく）
+	if (input->TriggerKey(DIK_G)) {
+		SceneManager::GetInstance()->ChangeScene("GAMEPLAY");
 	}
 
 #ifdef USE_IMGUI
 	ImGui::Begin("Title Scene");
 	ImGui::Text("This is TitleScene");
-	ImGui::Text("ENTER / SPACE / Pad A: CharacterSelectScene");
+	ImGui::Text("SPACE / Pad A: CharacterSelectScene");
 	ImGui::Text("G: GamePlayScene (test)");
 	ImGui::End();
 #endif

@@ -167,7 +167,7 @@ void CharacterSelectScene::Update()
 	}
 
 	// 決定：選んだキャラを覚えて、ステージへ
-	if (input->TriggerKey(DIK_RETURN) || input->TriggerKey(DIK_SPACE) || input->TriggerPad(XINPUT_GAMEPAD_A)) {
+	if (input->TriggerKey(DIK_SPACE) || input->TriggerPad(XINPUT_GAMEPAD_A)) {
 		CharacterSelection::SetSelected(static_cast<CharacterType>(selectedIndex));
 		SceneManager::GetInstance()->ChangeScene("STAGE");
 		return;
@@ -194,7 +194,7 @@ void CharacterSelectScene::Update()
 #ifdef USE_IMGUI
 	ImGui::Begin("Character Select");
 	ImGui::Text("Selected: %s", GetCharacterData(static_cast<CharacterType>(selectedIndex)).name);
-	ImGui::Text("A/D, Left/Right, Stick: select  Enter/Space/Pad A: decide  Esc/Pad B: title");
+	ImGui::Text("A/D, Left/Right, Stick: select  Space/Pad A: decide  Esc/Pad B: title");
 	ImGui::End();
 #endif
 }

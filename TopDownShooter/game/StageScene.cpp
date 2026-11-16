@@ -17,6 +17,7 @@
 #include "SceneManager.h"
 #include "BlendMode.h"
 #include "ImGuiManager.h"
+#include "RunRecord.h"
 
 using namespace MathUtility;
 
@@ -28,7 +29,20 @@ namespace {
 	const std::string kModelBullet = "test_bullet.obj";
 	const std::string kModelEnemyBullet = "test_enemy_bullet.obj";
 	const std::string kModelFireBullet = "test_fire.obj";
-	const std::string kModelStairs = "test_stairs.obj";
+	const std::string kModelStairs = "test_exit_stairs.obj"; // 下へ行く階段（出口の小部屋）
+	const std::string kModelPortal = "test_portal.obj";      // 帰還の転送陣（出口の小部屋）
+	const std::string kModelGacha = "test_gacha.obj";
+	const char* kTextureGachaPrompt = "resources/prompt_gacha.png";
+	const char* kTextureGachaPromptPoor = "resources/prompt_gacha_poor.png";
+	// 宝箱（宝部屋の真ん中。開けるとバリアが1枚もらえる）
+	const std::string kModelChest = "test_chest.obj";
+	const std::string kModelChestOpen = "test_chest_open.obj";
+	const char* kTextureChestPrompt = "resources/prompt_chest.png";
+	const char* kTextureBarrierGet = "resources/barrier_get.png";
+
+	// 敵を倒したときに落ちるコインの枚数（突進・射撃・群れ・重装）
+	const int32_t kCoinsByEnemy[] = { 2, 2, 1, 5 };
+	const int32_t kCoinsByBoss = 15;
 
 	// フロアの決まり（フロアを増やすときはここに足す。ボスは候補からランダム）
 	struct FloorConfig {
@@ -41,6 +55,13 @@ namespace {
 			{ 10, { BossType::kDragon } }, // 1F
 		};
 		return floors;
+	}
+	// index 番目のフロアの決まり（足りなければ最後のものをくり返す）
+	const FloorConfig& GetFloorConfig(int32_t index)
+	{
+		const std::vector<FloorConfig>& floors = GetFloorConfigs();
+		size_t clamped = (std::min)(static_cast<size_t>((std::max)(index, 0)), floors.size() - 1);
+		return floors[clamped];
 	}
 
 	// ボスを作る（ボスを増やしたらここに足す）
@@ -61,6 +82,7 @@ namespace {
 		case RoomType::kStart: return "Start";
 		case RoomType::kTreasure: return "Treasure";
 		case RoomType::kBoss: return "Boss";
+		case RoomType::kShop: return "Shop";
 		case RoomType::kCombat:
 		default: return "Combat";
 		}
@@ -90,7 +112,7 @@ void StageScene::Initialize()
 
 	// モデルの読み込み（2回目は自動で飛ばされる）。陰影がつくように Half Lambert にする
 	ModelManager* modelManager = ModelManager::GetInstance();
-	std::vector<std::string> litModels = { character.modelName, DungeonMap::kModelWall, DungeonMap::kModelDoor, DragonBoss::kModelBody };
+	std::vector<std::string> litModels = { character.parts.body, character.parts.foot, character.parts.rightHand, character.parts.leftHand, DungeonMap::kModelWall, DungeonMap::kModelDoor, DragonBoss::kModelBody, kModelGacha, kModelChest, kModelChestOpen, kModelStairs };
 	for (size_t i = 0; i < static_cast<size_t>(EnemyType::kCount); ++i) {
 		litModels.push_back(Enemy::GetData(static_cast<EnemyType>(i)).modelName);
 	}
@@ -100,7 +122,7 @@ void StageScene::Initialize()
 	}
 	// 床と攻撃は陰影なし（床は暗くならないように、攻撃は光っているように見せる）
 	const std::string unlitModels[] = {
-		kModelBullet, kModelEnemyBullet, kModelFireBullet, kModelStairs, DragonBoss::kModelShadow, DragonBoss::kModelWarning, character.shot.modelName,
+		kModelBullet, kModelEnemyBullet, kModelFireBullet, kModelPortal, LegendaryWeapon::kModelFireZone, DungeonMap::kModelFloorExit, DragonBoss::kModelShadow, DragonBoss::kModelWarning, CoinManager::kModelCoin, DungeonMap::kModelFloorShop, Barrier::kModel, Barrier::kModelBreak, character.shot.modelName,
 		DungeonMap::kModelFloorRoom, DungeonMap::kModelFloorBoss, DungeonMap::kModelFloorTreasure, DungeonMap::kModelFloorCorridor };
 	for (const std::string& name : unlitModels) {
 		modelManager->LoadModel(name);
@@ -111,13 +133,34 @@ void StageScene::Initialize()
 	TextureManager* textureManager = TextureManager::GetInstance();
 	for (const char* path : { Minimap::kTexture, StageHud::kTextureHeartFull, StageHud::kTextureHeartHalf,
 		StageHud::kTextureHeartEmpty, StageHud::kTextureGameOver, StageHud::kTextureWhite, BuildHud::kTextureDigits,
-		GrowthChoice::kTextureTitle, GrowthChoice::kTextureHint, StageHud::kTextureGameClear, DragonBoss::kTextureName }) {
+		GrowthChoice::kTextureTitle, GrowthChoice::kTextureHint,
+		InventoryHud::kTextureCoin, kTextureGachaPrompt, kTextureGachaPromptPoor, kTextureChestPrompt, kTextureBarrierGet, StageHud::kTextureGameClear, DragonBoss::kTextureName,
+		ConfirmDialog::kTexturePanel, ConfirmDialog::kTextureMessageNext, ConfirmDialog::kTextureMessageReturn,
+		ConfirmDialog::kTextureYes, ConfirmDialog::kTextureNo, ConfirmDialog::kTextureHint,
+		ResultScreen::kTextureTitleReturn, ResultScreen::kTextureTitleDead, ResultScreen::kTextureLabelFloor, ResultScreen::kTextureLabelTime,
+		ResultScreen::kTextureLabelKills, ResultScreen::kTextureLabelCoins, ResultScreen::kTextureLabelBest, ResultScreen::kTextureNewRecord,
+		ResultScreen::kTextureHint, ResultScreen::kTextureDigits,
+		GachaEffect::kTextureRays, GachaEffect::kTextureGlow, GachaEffect::kTextureStar, GachaEffect::kTextureCapsuleTop,
+		GachaEffect::kTextureCapsuleBottom, GachaEffect::kTextureHint, LegendaryWeapon::kTextureSecret }) {
 		textureManager->LoadTexture(path);
 	}
 	for (size_t i = 0; i < static_cast<size_t>(GrowthStat::kCount); ++i) {
 		textureManager->LoadTexture(BuildHud::GetIconTexture(static_cast<GrowthStat>(i)));
 		textureManager->LoadTexture(BuildHud::GetPopupTexture(static_cast<GrowthStat>(i)));
 		textureManager->LoadTexture(GrowthChoice::GetCardTexture(static_cast<GrowthStat>(i)));
+	}
+	for (size_t i = 0; i < static_cast<size_t>(CharacterType::kCount); ++i) {
+		CharacterType type = static_cast<CharacterType>(i);
+		for (const char* path : { LegendaryWeapon::GetBigIconTexture(type), LegendaryWeapon::GetIconTexture(type),
+			LegendaryWeapon::GetGetTexture(type), LegendaryWeapon::GetDescriptionTexture(type) }) {
+			textureManager->LoadTexture(path);
+		}
+	}
+	for (size_t i = 0; i < static_cast<size_t>(ItemType::kCount); ++i) {
+		textureManager->LoadTexture(ItemInventory::GetData(static_cast<ItemType>(i)).iconTexture);
+		textureManager->LoadTexture(ItemInventory::GetData(static_cast<ItemType>(i)).getTexture);
+		textureManager->LoadTexture(GachaEffect::GetBigIconTexture(static_cast<ItemType>(i)));
+		textureManager->LoadTexture(GachaEffect::GetDescriptionTexture(static_cast<ItemType>(i)));
 	}
 
 	// 敵の弾：赤く光る玉。遅めで見やすく、くるくる回る
@@ -130,10 +173,23 @@ void StageScene::Initialize()
 	fireShotStyle.modelName = kModelFireBullet;
 	fireShotStyle.radius = 0.3f;
 
-	// 階段（ボスを倒すと出る。次のフロアへ）
+	// 出口の小部屋の、下へ行く階段と帰還の転送陣
 	stairs = std::make_unique<Object3d>();
 	stairs->Initialize(object3dCommon);
 	stairs->SetModel(kModelStairs);
+	portal = std::make_unique<Object3d>();
+	portal->Initialize(object3dCommon);
+	portal->SetModel(kModelPortal);
+
+	// ガチャ（ショップの真ん中に置く）とコイン
+	gachaMachine = std::make_unique<Object3d>();
+	gachaMachine->Initialize(object3dCommon);
+	gachaMachine->SetModel(kModelGacha);
+	coins.Initialize();
+	chest = std::make_unique<Object3d>();
+	chest->Initialize(object3dCommon);
+	chest->SetModel(kModelChest);
+	barrier.Initialize();
 
 	// パーティクル（当たったときの火花）
 	ParticleManager* particleManager = ParticleManager::GetInstance();
@@ -163,7 +219,35 @@ void StageScene::Initialize()
 	// 画面表示
 	hud.Initialize(spriteCommon);
 	buildHud.Initialize(spriteCommon);
+	inventoryHud.Initialize(spriteCommon);
+	// 「ガチャを回す」の案内（ガチャに近づいたときだけ出す。コインが足りないときは別の画像）
+	for (std::unique_ptr<Sprite>* prompt : { &gachaPrompt, &gachaPromptPoor }) {
+		*prompt = std::make_unique<Sprite>();
+		(*prompt)->Initialize(spriteCommon, (prompt == &gachaPrompt) ? kTextureGachaPrompt : kTextureGachaPromptPoor);
+		(*prompt)->SetAnchorPoint({ 0.5f, 0.5f });
+		(*prompt)->SetPosition({ 640.0f, 600.0f });
+		(*prompt)->Update();
+	}
+	// 持ち物（アイテムとコイン）はシーンの最初に空にする（フロアをまたいでも持ち越す）
+	items.Reset();
+	coinCount = 0;
+	barrier.Reset();
+	chestPrompt = std::make_unique<Sprite>();
+	chestPrompt->Initialize(spriteCommon, kTextureChestPrompt);
+	chestPrompt->SetAnchorPoint({ 0.5f, 0.5f });
+	chestPrompt->SetPosition({ 640.0f, 600.0f });
+	chestPrompt->Update();
 	growthChoice.Initialize(spriteCommon);
+	confirmDialog.Initialize(spriteCommon);
+	gachaEffect.Initialize(spriteCommon);
+	// 伝説の武器（矢の雨にはキャラの攻撃のモデルを使う）
+	legendary.Initialize(CharacterSelection::GetSelected(), character.shot.modelName);
+	forceSecretNext = false;
+	rainBulletAlive.fill(false);
+	// 武器を持っている手のモデル（名前に _weapon が入っている方）。前の挑戦で虹色にしていたら白に戻す
+	legendaryWeaponModel = (character.parts.leftHand.find("_weapon") != std::string::npos) ? character.parts.leftHand : character.parts.rightHand;
+	ModelManager::GetInstance()->FindModel(legendaryWeaponModel)->SetColor({ 1.0f, 1.0f, 1.0f, 1.0f });
+	resultScreen.Initialize(spriteCommon);
 	// ビルド（キャラの初期ステータスから始める）
 	build.Reset(character.stats);
 
@@ -171,6 +255,8 @@ void StageScene::Initialize()
 	roomLibrary.Load(kRoomDirectory);
 	floorIndex = 0;
 	playTime = 0.0f;
+	runKills = 0;
+	runCoins = 0;
 	BuildFloor();
 }
 
@@ -179,22 +265,47 @@ void StageScene::BuildFloor()
 	// 種を決めて、部屋の並び → マップ → ミニマップの順に作る
 	seed = std::random_device{}();
 	random.seed(seed);
-	const FloorConfig& floor = GetFloorConfigs()[static_cast<size_t>(floorIndex)];
+	const FloorConfig& floor = GetFloorConfig(floorIndex);
 	layout = DungeonGenerator::Generate(random, floor.roomCount);
 	// このフロアのボスを候補から選ぶ
 	std::uniform_int_distribution<size_t> bossDistribution(0, floor.bossPool.size() - 1);
 	floorBoss = floor.bossPool[bossDistribution(random)];
 	boss.reset();
-	stairsActive = false;
 	map.Build(layout, roomLibrary, random);
+	// 出口の小部屋：階段と転送陣を置いて、ボスを倒すまで扉を閉めておく
+	exitOpen = false;
+	stairsArmed = true;
+	portalArmed = true;
+	if (layout.exitRoom >= 0) {
+		stairs->SetTranslate(map.GetExitStairsPosition());
+		portal->SetTranslate(map.GetExitPortalPosition());
+		map.SetRoomLocked(layout.exitRoom, true);
+	}
 	minimap.Initialize(spriteCommon, layout);
+	// 伝説の武器の炎と矢の雨は、フロアが変わったら消す（武器は持ったまま）
+	legendary.ClearEffects();
+	// コインは床に残っていても消す。ガチャはショップの真ん中に置く（マップを作った後でないと部屋の位置が分からない）
+	coins.Clear();
+	nearGacha = false;
+	if (layout.shopRoom >= 0) {
+		gachaPosition = map.GetRoomCenter(layout.shopRoom);
+		gachaMachine->SetTranslate(gachaPosition);
+	}
+	// 宝箱は宝部屋の真ん中に、閉じた状態で置く
+	nearChest = false;
+	chestOpened = false;
+	chest->SetModel(kModelChest);
+	if (layout.treasureRoom >= 0) {
+		chestPosition = map.GetRoomCenter(layout.treasureRoom);
+		chest->SetTranslate(chestPosition);
+	}
 
 	roomStates.assign(layout.rooms.size(), RoomState::kUnvisited);
 	roomVisited.assign(layout.rooms.size(), false);
 	// 敵のいない部屋は、最初からクリア扱い
 	for (size_t i = 0; i < layout.rooms.size(); ++i) {
 		RoomType type = layout.rooms[i].type;
-		if (type == RoomType::kStart || type == RoomType::kTreasure) {
+		if (type == RoomType::kStart || type == RoomType::kTreasure || type == RoomType::kShop || type == RoomType::kExit) {
 			roomStates[i] = RoomState::kCleared;
 		}
 	}
@@ -228,15 +339,33 @@ void StageScene::Finalize()
 
 void StageScene::Update()
 {
-	// Esc でキャラ選択へ戻る（仮。キャラを遊び比べやすいように）
-	if (input->TriggerKey(DIK_ESCAPE)) {
-		SceneManager::GetInstance()->ChangeScene("SELECT");
+	// ゲームオーバー・帰還の後は、世界を止めてリザルトとやり直しの入力だけ
+	if (isGameOver || isGameClear) {
+		UpdateGameOver();
+		return;
+	}
+	// ガチャの演出中は世界を止める（終わったらアイテムを渡す）
+	if (gachaEffect.IsPlaying()) {
+		if (gachaEffect.Update(input, kDeltaTime)) {
+			// 演出で大きく見せたので、「手に入れた！」の小さな表示は出さない
+			if (gachaEffect.IsLegendary()) {
+				GiveLegendary();
+			} else {
+				GiveItem(gachaEffect.GetItem(), false);
+			}
+		}
+		UpdateFrozenWorld();
+		return;
+	}
+	// 確認画面（次の層へ進む？・帰還する？）が出ている間も世界を止める（Esc はここで「いいえ」になる）
+	if (confirmDialog.IsOpen()) {
+		UpdateConfirm();
 		return;
 	}
 
-	// ゲームオーバー中は、世界を止めてやり直しの入力だけ待つ
-	if (isGameOver || isGameClear) {
-		UpdateGameOver();
+	// Esc でキャラ選択へ戻る（仮。キャラを遊び比べやすいように）
+	if (input->TriggerKey(DIK_ESCAPE)) {
+		SceneManager::GetInstance()->ChangeScene("SELECT");
 		return;
 	}
 	// 力を選んでいる間は、世界を止めて選ぶ画面だけ動かす
@@ -250,13 +379,21 @@ void StageScene::Update()
 
 	// 入力を読む（カメラは前のフレームのものを使う）
 	playerInput = inputReader.Read(input, camera, player->GetPosition(), Player::kShotHeight);
+	// 画面を閉じた直後：攻撃ボタンをはなすまでは撃たない
+	if (holdFireUntilRelease) {
+		if (playerInput.fire) {
+			playerInput.fire = false;
+		} else {
+			holdFireUntilRelease = false;
+		}
+	}
 
 	// プレイヤー（動いた後で壁から押し戻す）
 	Player::ShotRequest shot = player->Update(playerInput, kDeltaTime);
 	player->SetPosition(map.ResolveCircle(player->GetPosition(), player->GetRadius()));
 	// 撃つ位置が壁の中なら撃たない（壁に張り付いて撃つと、壁の向こうに弾が出てしまうので）
 	if (shot.shoot && !map.IsSolidAt(shot.position)) {
-		bullets.Fire(shot.position, shot.direction, player->GetStats(), shotStyle, true);
+		FirePlayerShot(shot.position, shot.direction);
 	}
 
 	// 部屋の進行（入ったら閉める・全部倒したら開ける）
@@ -266,22 +403,28 @@ void StageScene::Update()
 	UpdateEnemies();
 	UpdateBoss();
 
-	// 階段：乗ったら次のフロアへ（最後のフロアならクリア）
-	if (stairsActive) {
-		Vector3 diff = { player->GetPosition().x - stairsPosition.x, 0.0f, player->GetPosition().z - stairsPosition.z };
-		// 出た瞬間に乗っていても進まないように、一度離れてから乗ったら進む
-		if (Length(diff) > 2.5f) {
-			stairsArmed = true;
-		}
-		if (stairsArmed && Length(diff) < 1.2f) {
-			GoToNextFloor();
-			return;
-		}
+	// コイン（拾った分だけ増える）とガチャ
+	int32_t collected = coins.Update(player->GetPosition(), map, kDeltaTime);
+	if (collected > 0) {
+		coinCount += collected;
+		runCoins += collected;
+		inventoryHud.OnCoinCollected();
+	}
+	UpdateGacha();
+	UpdateChest();
+	barrier.Update(player->GetPosition(), kDeltaTime);
+
+	// 出口の小部屋：階段・転送陣に触れたら確認画面を出す
+	UpdateExit();
+	if (confirmDialog.IsOpen()) {
+		return;
 	}
 
 	// 弾と当たり判定
+	UpdateHoming();
 	bullets.Update(kDeltaTime, 100000.0f);
 	CheckBulletHits();
+	UpdateLegendary();
 	CheckPlayerHits();
 
 	// カメラ（プレイヤーが動いた後で）
@@ -294,6 +437,7 @@ void StageScene::Update()
 	minimap.Update(roomVisited, currentRoom);
 	hud.Update(player->GetHp(), player->GetMaxHp(), kDeltaTime);
 	buildHud.Update(build, kDeltaTime);
+	inventoryHud.Update(coinCount, items, kDeltaTime);
 
 	// パーティクル（カメラの更新の後で）
 	ParticleManager::GetInstance()->Update();
@@ -359,13 +503,13 @@ void StageScene::UpdateRooms()
 		bullets.ClearEnemyBullets();
 		fightingRoom = -1;
 		if (boss) {
-			// ボス：倒したら大きめの力を選べて、部屋の真ん中に階段が出る
+			// ボス：倒したら大きめの力を選べて、出口の小部屋の扉が開く
 			hud.SetBoss(nullptr);
 			OpenBossGrowthChoice();
-			stairsActive = true;
-			stairsArmed = false;
-			stairsPosition = map.GetRoomCenter(layout.bossRoom);
-			stairs->SetTranslate(stairsPosition);
+			if (layout.exitRoom >= 0) {
+				exitOpen = true;
+				map.SetRoomLocked(layout.exitRoom, false);
+			}
 			boss.reset();
 		} else {
 			// この部屋で倒した敵の中から、取り込む力を選ぶ
@@ -411,7 +555,7 @@ void StageScene::SpawnEnemies(int32_t roomIndex)
 			}
 			Vector3 position = point.position;
 			if (count > 1) {
-				float angle = std::numbers::pi_v<float> *2.0f * static_cast<float>(i) / static_cast<float>(count);
+				float angle = std::numbers::pi_v<float> * 2.0f * static_cast<float>(i) / static_cast<float>(count);
 				position += Vector3{ std::sin(angle), 0.0f, std::cos(angle) } * 0.9f;
 				position = map.ResolveCircle(position, Enemy::GetData(type).radius);
 			}
@@ -527,10 +671,26 @@ void StageScene::UpdateCamera()
 	if (boss) {
 		boss->SetCamera(camera);
 	}
+	coins.SetCamera(camera);
+	barrier.SetCamera(camera);
+	if (chest) {
+		chest->SetCamera(camera);
+		chest->Update();
+	}
+	if (gachaMachine) {
+		gachaMachine->SetCamera(camera);
+		gachaMachine->Update();
+	}
 	if (stairs) {
 		stairs->SetCamera(camera);
-		stairs->SetRotate({ 0.0f, shakeTime * 0.8f, 0.0f });
 		stairs->Update();
+	}
+	legendary.SetCamera(camera);
+	if (portal) {
+		// 転送陣はゆっくり回る（扉が開いたら速く回って、使えるのが分かるように）
+		portal->SetCamera(camera);
+		portal->SetRotate({ 0.0f, shakeTime * (exitOpen ? 0.9f : 0.15f), 0.0f });
+		portal->Update();
 	}
 }
 
@@ -541,8 +701,12 @@ void StageScene::CheckBulletHits()
 		if (!bullet.active) {
 			continue;
 		}
-		// 壁に当たったら消える（爆発する弾はその場で爆発）
+		// 壁に当たったら消える（爆発する弾はその場で爆発）。跳ね返りのアイテムがあれば跳ね返る
 		if (map.IsSolidAt(bullet.position)) {
+			if (bullet.fromPlayer && bullet.bounceLeft > 0) {
+				BounceBullet(bullet);
+				continue;
+			}
 			if (bullet.fromPlayer && bullet.explosionRadius > 0.0f) {
 				Explode(bullet.position, bullet.explosionRadius, bullet.damage * bullet.explosionDamageRate, enemies.size(), false);
 			} else {
@@ -564,6 +728,7 @@ void StageScene::CheckBulletHits()
 				bullet.hitMask |= kBossHitBit;
 				DamageBoss(bullet.damage);
 				particleManager->Emit(kParticleSpark, bullet.position, 3u);
+				SplitBullet(bullet);
 				if (bullet.explosionRadius > 0.0f) {
 					Explode(bullet.position, bullet.explosionRadius, bullet.damage * bullet.explosionDamageRate, enemies.size(), true);
 					bullet.active = false;
@@ -590,6 +755,7 @@ void StageScene::CheckBulletHits()
 			bullet.hitMask |= bit;
 			DamageEnemy(*enemy, bullet.damage, bullet.velocity);
 			particleManager->Emit(kParticleSpark, bullet.position, 3u);
+			SplitBullet(bullet);
 
 			// 爆発する弾：周りの敵にもダメージを与えて消える
 			if (bullet.explosionRadius > 0.0f) {
@@ -620,6 +786,10 @@ bool StageScene::ConsumePierce(BulletManager::Bullet& bullet)
 void StageScene::Explode(const Vector3& center, float radius, float damage, size_t ignoreIndex, bool ignoreBoss)
 {
 	ParticleManager::GetInstance()->Emit(kParticleSpark, center, 20u);
+	// 星の杖：爆発した場所に炎を残す（自分には当たらない）
+	if (legendary.IsOwned() && legendary.GetCharacter() == CharacterType::kWitch) {
+		legendary.AddFireZone(center, radius * 0.8f, player->GetStats().bulletDamage * 0.25f);
+	}
 	shake = (std::min)(1.0f, shake + 0.2f);
 	for (size_t i = 0; i < enemies.size(); ++i) {
 		Enemy* enemy = enemies[i].get();
@@ -649,8 +819,11 @@ void StageScene::DamageEnemy(Enemy& enemy, float damage, const Vector3& directio
 	bool killed = enemy.Hit(damage, direction);
 	if (killed) {
 		killCount++;
+		runKills++;
 		// この部屋で倒した数を種類ごとに数える（クリアしたときの選択肢になる）
 		roomKillCounts[static_cast<size_t>(enemy.GetType())]++;
+		// コインを落とす
+		coins.Spawn(enemy.GetPosition(), kCoinsByEnemy[static_cast<size_t>(enemy.GetType())]);
 		shake = (std::min)(1.0f, shake + 0.35f);
 		ParticleManager::GetInstance()->Emit(kParticleSpark, enemy.GetPosition() + Vector3{ 0.0f, 0.5f, 0.0f }, 16u);
 	}
@@ -708,6 +881,14 @@ void StageScene::DamagePlayer(int32_t amount)
 	if (godMode || !player->CanTakeDamage()) {
 		return;
 	}
+	// バリアがあれば、ダメージの代わりにバリアが1枚割れる。場にある敵の弾も全部消える
+	if (barrier.Consume()) {
+		bullets.ClearEnemyBullets();
+		player->StartInvincible();
+		shake = (std::min)(1.0f, shake + 0.5f);
+		ParticleManager::GetInstance()->Emit(kParticleSpark, player->GetPosition() + Vector3{ 0.0f, 0.6f, 0.0f }, 25u);
+		return;
+	}
 	bool died = player->TakeDamage(amount);
 	hud.OnDamaged();
 	shake = (std::min)(1.0f, shake + 0.6f);
@@ -739,7 +920,7 @@ void StageScene::OpenGrowthChoice()
 	}
 	std::stable_sort(options.begin(), options.end(), [](const GrowthChoice::Option& a, const GrowthChoice::Option& b) {
 		return a.amount > b.amount;
-		});
+	});
 	growthChoice.Open(options);
 }
 
@@ -757,18 +938,21 @@ void StageScene::UpdateGrowthChoice()
 void StageScene::ApplyGrowth(GrowthStat stat, int32_t amount)
 {
 	build.AddGrowth(stat, amount);
-	player->GetStats() = build.ComputeStats();
+	RefreshPlayerStats();
 	buildHud.OnGrowth(stat);
 }
 
 void StageScene::UpdateFrozenWorld()
 {
 	// 止まった世界をそのまま見せる（カメラの揺れ・画面表示・パーティクルだけ動かす）
+	// 画面が出ている間に押したボタンで、閉じた後に弾が出ないようにする
+	holdFireUntilRelease = true;
 	UpdateCamera();
 	map.Update(camera, cameraFocus);
 	minimap.Update(roomVisited, currentRoom);
 	hud.Update(player->GetHp(), player->GetMaxHp(), kDeltaTime);
 	buildHud.Update(build, kDeltaTime);
+	inventoryHud.Update(coinCount, items, kDeltaTime);
 	ParticleManager::GetInstance()->Update();
 	DrawDebugWindow();
 }
@@ -828,6 +1012,7 @@ void StageScene::DamageBoss(float damage)
 	bool killed = boss->Hit(damage);
 	if (killed) {
 		shake = 1.0f;
+		coins.Spawn(boss->GetPosition(), kCoinsByBoss);
 		bullets.ClearEnemyBullets();
 	}
 }
@@ -835,7 +1020,7 @@ void StageScene::DamageBoss(float damage)
 void StageScene::OpenBossGrowthChoice()
 {
 	// ボスの力：4つ全部から選べて、1部屋より大きく伸びる
-	const int32_t amounts[] = { 5, 4, 10, 2 }; // 移動速度・射程・連射・威力（それぞれ +20〜24%）
+	const int32_t amounts[] = { 5, 4, 10, 2 }; // 移動速度・射程・連射・威力（どれも +20%）
 	std::vector<GrowthChoice::Option> options;
 	for (size_t i = 0; i < static_cast<size_t>(GrowthStat::kCount); ++i) {
 		GrowthChoice::Option option;
@@ -849,28 +1034,351 @@ void StageScene::OpenBossGrowthChoice()
 
 void StageScene::GoToNextFloor()
 {
-	stairsActive = false;
-	if (floorIndex + 1 < static_cast<int32_t>(GetFloorConfigs().size())) {
-		// 次のフロアへ（HP とビルドはそのまま持っていく）
-		floorIndex++;
-		bullets.Initialize(kModelBullet);
-		BuildFloor();
-	} else {
-		// 最後のフロア：クリア
-		isGameClear = true;
-		gameOverTimer = 0.0f;
-		hud.ShowClear(playTime);
+	// 次のフロアへ（HP・ビルド・アイテム・コイン・バリアはそのまま持っていく）
+	floorIndex++;
+	bullets.Initialize(kModelBullet);
+	BuildFloor();
+}
+
+void StageScene::UpdateExit()
+{
+	if (!exitOpen || layout.exitRoom < 0) {
+		return;
 	}
+	// 触れたか見る。一度離れるまでは、触れても開かない（「いいえ」の後にすぐまた開かないように）
+	auto checkTouch = [this](const Vector3& position, float radius, bool& armed) {
+		Vector3 diff = { player->GetPosition().x - position.x, 0.0f, player->GetPosition().z - position.z };
+		float distance = Length(diff);
+		if (distance > kRearmDistance) {
+			armed = true;
+		}
+		if (armed && distance < radius) {
+			armed = false;
+			return true;
+		}
+		return false;
+	};
+	if (checkTouch(map.GetExitStairsPosition(), kStairsTouchRadius, stairsArmed)) {
+		// 次の層へ：最初は「はい」を選んでおく
+		confirmDialog.Open(ConfirmDialog::Kind::kNextFloor, true);
+	} else if (checkTouch(map.GetExitPortalPosition(), kPortalTouchRadius, portalArmed)) {
+		// 帰還：冒険が終わってしまうので、最初は「いいえ」を選んでおく
+		confirmDialog.Open(ConfirmDialog::Kind::kReturn, false);
+	}
+}
+
+void StageScene::UpdateConfirm()
+{
+	ConfirmDialog::Answer answer = confirmDialog.Update(input, kDeltaTime);
+	if (answer == ConfirmDialog::Answer::kYes) {
+		if (confirmDialog.GetKind() == ConfirmDialog::Kind::kNextFloor) {
+			GoToNextFloor();
+		} else {
+			FinishRun(true);
+		}
+		return;
+	}
+	UpdateFrozenWorld();
+}
+
+void StageScene::FinishRun(bool returned)
+{
+	// 帰還：ここまでのフロアを踏破した。力尽きた：今いるフロアまで来た。どちらも「到達階層」は今のフロア
+	isGameClear = returned;
+	gameOverTimer = 0.0f;
+	ResultScreen::Result result;
+	result.returned = returned;
+	result.floor = floorIndex + 1;
+	result.seconds = playTime;
+	result.kills = runKills;
+	result.coins = runCoins;
+	// ベスト記録と比べて、更新したら保存する（比べる前の記録を出すと「前のベスト」になってしまうので、出すのは更新後）
+	CharacterType character = CharacterSelection::GetSelected();
+	bool isNewRecord = RunRecord::Submit(character, result.floor, result.seconds);
+	resultScreen.Open(result, RunRecord::Load(character), isNewRecord);
+}
+
+void StageScene::RefreshPlayerStats()
+{
+	// ビルドのステータスに、アイテムの影響（拡散で連射が少し遅くなる）を足す
+	PlayerStats stats = build.ComputeStats();
+	stats.fireInterval *= items.ComputeModifiers().fireIntervalRate;
+	player->GetStats() = stats;
+}
+
+void StageScene::FirePlayerShot(const Vector3& position, const Vector3& direction)
+{
+	// 拡散：真ん中を狙う向きにして、左右に spreadAngle ずつずらして撃つ
+	ShotModifiers modifiers = items.ComputeModifiers();
+	float baseAngle = std::atan2(direction.x, direction.z);
+	for (int32_t i = 0; i < modifiers.shotCount; ++i) {
+		float offset = (static_cast<float>(i) - static_cast<float>(modifiers.shotCount - 1) / 2.0f) * modifiers.spreadAngle;
+		Vector3 shotDirection = { std::sin(baseAngle + offset), 0.0f, std::cos(baseAngle + offset) };
+		BulletManager::Bullet* bullet = bullets.Fire(position, shotDirection, player->GetStats(), shotStyle, modifiers);
+		// 天弓：真ん中の矢だけ、消えた場所に矢の雨を降らせる（拡散で全部に付くと強すぎるので）
+		bool isCenter = (i == modifiers.shotCount / 2);
+		if (bullet && isCenter && legendary.IsOwned() && legendary.GetCharacter() == CharacterType::kArcher) {
+			bullet->rainOnEnd = true;
+		}
+	}
+}
+
+void StageScene::UpdateHoming()
+{
+	for (BulletManager::Bullet& bullet : bullets.GetBullets()) {
+		if (!bullet.active || !bullet.fromPlayer || bullet.homingTurnSpeed <= 0.0f) {
+			continue;
+		}
+		// 一番近い敵（とボス）を探す
+		Vector3 target = { 0.0f, 0.0f, 0.0f };
+		float best = kHomingRange;
+		bool found = false;
+		for (std::unique_ptr<Enemy>& enemy : enemies) {
+			if (!enemy->IsAlive()) {
+				continue;
+			}
+			Vector3 diff = { enemy->GetPosition().x - bullet.position.x, 0.0f, enemy->GetPosition().z - bullet.position.z };
+			float distance = Length(diff);
+			if (distance < best) {
+				best = distance;
+				target = enemy->GetPosition();
+				found = true;
+			}
+		}
+		if (boss && boss->IsHittable()) {
+			Vector3 diff = { boss->GetPosition().x - bullet.position.x, 0.0f, boss->GetPosition().z - bullet.position.z };
+			if (Length(diff) < best) {
+				target = boss->GetPosition();
+				found = true;
+			}
+		}
+		if (!found) {
+			continue;
+		}
+		// 今の向きから、敵の方へ少しだけ曲げる（1フレームに曲がれる角度に上限がある）
+		float currentAngle = std::atan2(bullet.velocity.x, bullet.velocity.z);
+		float targetAngle = std::atan2(target.x - bullet.position.x, target.z - bullet.position.z);
+		float diffAngle = targetAngle - currentAngle;
+		while (diffAngle > std::numbers::pi_v<float>) { diffAngle -= std::numbers::pi_v<float> * 2.0f; }
+		while (diffAngle < -std::numbers::pi_v<float>) { diffAngle += std::numbers::pi_v<float> * 2.0f; }
+		float maxTurn = bullet.homingTurnSpeed * kDeltaTime;
+		float newAngle = currentAngle + std::clamp(diffAngle, -maxTurn, maxTurn);
+		float speed = Length(bullet.velocity);
+		bullet.velocity = { std::sin(newAngle) * speed, 0.0f, std::cos(newAngle) * speed };
+	}
+}
+
+void StageScene::BounceBullet(BulletManager::Bullet& bullet)
+{
+	// 1フレーム前の位置に戻して、どちらの向きで壁にぶつかったかを調べて、その向きの速さを反対にする
+	Vector3 previous = bullet.position - bullet.velocity * kDeltaTime;
+	bool hitX = map.IsSolidAt({ bullet.position.x, 0.0f, previous.z });
+	bool hitZ = map.IsSolidAt({ previous.x, 0.0f, bullet.position.z });
+	if (hitX) {
+		bullet.velocity.x = -bullet.velocity.x;
+	}
+	if (hitZ) {
+		bullet.velocity.z = -bullet.velocity.z;
+	}
+	if (!hitX && !hitZ) {
+		// 角にぴったり当たった：来た方向へ戻す
+		bullet.velocity = -bullet.velocity;
+	}
+	bullet.position = previous;
+	bullet.bounceLeft--;
+	ParticleManager::GetInstance()->Emit(kParticleSpark, bullet.position, 1u);
+}
+
+void StageScene::SplitBullet(BulletManager::Bullet& bullet)
+{
+	// 分裂：当たったところから、まわりに均等に小さな弾を出す（1発につき1回だけ）
+	if (bullet.splitCount <= 0) {
+		return;
+	}
+	float baseAngle = std::atan2(bullet.velocity.x, bullet.velocity.z);
+	for (int32_t i = 0; i < bullet.splitCount; ++i) {
+		float angle = baseAngle + std::numbers::pi_v<float> * 2.0f * static_cast<float>(i) / static_cast<float>(bullet.splitCount);
+		bullets.FireSplit(bullet, { std::sin(angle), 0.0f, std::cos(angle) }, shotStyle.modelName);
+	}
+	bullet.splitCount = 0;
+}
+
+void StageScene::UpdateGacha()
+{
+	nearGacha = false;
+	if (layout.shopRoom < 0) {
+		return;
+	}
+	Vector3 diff = { player->GetPosition().x - gachaPosition.x, 0.0f, player->GetPosition().z - gachaPosition.z };
+	float distance = Length(diff);
+
+	// ガチャは通り抜けられない（円で押し戻す）
+	float minDistance = kGachaRadius + player->GetRadius();
+	if (distance < minDistance && distance > 0.0001f) {
+		Vector3 pushed = gachaPosition + diff / distance * minDistance;
+		pushed.y = player->GetPosition().y;
+		player->SetPosition(pushed);
+		distance = minDistance;
+	}
+
+	// 近くで E／パッドの X：コインが足りれば回す
+	nearGacha = distance < kGachaUseDistance;
+	if (!nearGacha || !(input->TriggerKey(DIK_E) || input->TriggerPad(XINPUT_GAMEPAD_X))) {
+		return;
+	}
+	if (coinCount < kGachaPrice) {
+		shake = (std::min)(1.0f, shake + 0.1f);
+		return;
+	}
+	coinCount -= kGachaPrice;
+	// 出るアイテムはここで決めて、画面全体の演出を始める（アイテムは演出が終わってから渡す）
+	// シークレット：1万回に1回、伝説の武器（まだ持っていないときだけ）
+	std::uniform_int_distribution<int32_t> secretDistribution(0, kSecretOdds - 1);
+	bool secret = !legendary.IsOwned() && (forceSecretNext || secretDistribution(random) == 0);
+	forceSecretNext = false;
+	if (secret) {
+		gachaEffect.StartLegendary(CharacterSelection::GetSelected());
+	} else {
+		std::uniform_int_distribution<int32_t> itemDistribution(0, static_cast<int32_t>(ItemType::kCount) - 1);
+		gachaEffect.Start(static_cast<ItemType>(itemDistribution(random)));
+	}
+	nearGacha = false;
+	ParticleManager::GetInstance()->Emit(kParticleSpark, gachaPosition + Vector3{ 0.0f, 1.5f, 0.0f }, 30u);
+	shake = (std::min)(1.0f, shake + 0.3f);
+}
+
+void StageScene::UpdateChest()
+{
+	nearChest = false;
+	if (layout.treasureRoom < 0) {
+		return;
+	}
+	Vector3 diff = { player->GetPosition().x - chestPosition.x, 0.0f, player->GetPosition().z - chestPosition.z };
+	float distance = Length(diff);
+
+	// 宝箱も通り抜けられない（円で押し戻す。ガチャと同じ）
+	float minDistance = kChestRadius + player->GetRadius();
+	if (distance < minDistance && distance > 0.0001f) {
+		Vector3 pushed = chestPosition + diff / distance * minDistance;
+		pushed.y = player->GetPosition().y;
+		player->SetPosition(pushed);
+		distance = minDistance;
+	}
+	if (chestOpened) {
+		return;
+	}
+
+	// 近くで E／パッドの X：開けてバリアを1枚もらう（1フロアに1回）
+	nearChest = distance < kChestUseDistance;
+	if (!nearChest || !(input->TriggerKey(DIK_E) || input->TriggerPad(XINPUT_GAMEPAD_X))) {
+		return;
+	}
+	chestOpened = true;
+	nearChest = false;
+	chest->SetModel(kModelChestOpen);
+	barrier.Add();
+	inventoryHud.ShowGetPopup(kTextureBarrierGet);
+	ParticleManager::GetInstance()->Emit(kParticleSpark, chestPosition + Vector3{ 0.0f, 1.0f, 0.0f }, 30u);
+	shake = (std::min)(1.0f, shake + 0.3f);
+}
+
+void StageScene::GiveLegendary()
+{
+	legendary.Obtain();
+	inventoryHud.SetLegendaryIcon(LegendaryWeapon::GetIconTexture(legendary.GetCharacter()));
+	shake = (std::min)(1.0f, shake + 0.5f);
+}
+
+void StageScene::UpdateLegendary()
+{
+	ParticleManager* particleManager = ParticleManager::GetInstance();
+	std::array<BulletManager::Bullet, BulletManager::kMaxBullets>& list = bullets.GetBullets();
+
+	// 聖剣：プレイヤーの斬撃に触れた敵の弾を消す（斬撃はそのまま飛び続ける）
+	if (legendary.IsOwned() && legendary.GetCharacter() == CharacterType::kKnight) {
+		for (BulletManager::Bullet& slash : list) {
+			if (!slash.active || !slash.fromPlayer) {
+				continue;
+			}
+			float slashRadius = BulletManager::GetCurrentRadius(slash);
+			for (BulletManager::Bullet& enemyBullet : list) {
+				if (!enemyBullet.active || enemyBullet.fromPlayer) {
+					continue;
+				}
+				Vector3 diff = { enemyBullet.position.x - slash.position.x, 0.0f, enemyBullet.position.z - slash.position.z };
+				if (Length(diff) <= slashRadius + enemyBullet.radius) {
+					enemyBullet.active = false;
+					particleManager->Emit(kParticleSpark, enemyBullet.position, 2u);
+				}
+			}
+		}
+	}
+
+	// 天弓：「消えたら雨を降らせる矢」が、このフレームで消えていたら、その場所に矢の雨
+	for (size_t i = 0; i < list.size(); ++i) {
+		BulletManager::Bullet& bullet = list[i];
+		if (rainBulletAlive[i] && !bullet.active) {
+			legendary.AddArrowRain(bullet.position, player->GetStats().bulletDamage * 0.4f);
+		}
+		rainBulletAlive[i] = bullet.active && bullet.rainOnEnd;
+	}
+
+	// 炎・矢の雨・キラキラ
+	legendary.Update(kDeltaTime, player->GetPosition(),
+		[this](const Vector3& center, float radius, float damage) { DamageArea(center, radius, damage); },
+		[this](const Vector3& position) { return map.IsSolidAt(position); });
+
+	// 武器を持っている手を、虹色に少しだけ光らせる
+	if (legendary.IsOwned()) {
+		Vector4 hue = LegendaryWeapon::HueToColor(shakeTime * 0.5f);
+		const float mix = 0.4f;
+		ModelManager::GetInstance()->FindModel(legendaryWeaponModel)->SetColor({
+			1.0f + (hue.x - 1.0f) * mix, 1.0f + (hue.y - 1.0f) * mix, 1.0f + (hue.z - 1.0f) * mix, 1.0f });
+	}
+}
+
+void StageScene::DamageArea(const Vector3& center, float radius, float damage)
+{
+	for (std::unique_ptr<Enemy>& enemy : enemies) {
+		if (!enemy->IsAlive()) {
+			continue;
+		}
+		Vector3 diff = { enemy->GetPosition().x - center.x, 0.0f, enemy->GetPosition().z - center.z };
+		if (Length(diff) > radius + enemy->GetRadius()) {
+			continue;
+		}
+		Vector3 push = (Length(diff) > 0.001f) ? diff : Vector3{ 0.0f, 0.0f, 1.0f };
+		DamageEnemy(*enemy, damage, push);
+	}
+	if (boss && boss->IsHittable()) {
+		Vector3 diff = { boss->GetPosition().x - center.x, 0.0f, boss->GetPosition().z - center.z };
+		if (Length(diff) <= radius + boss->GetRadius()) {
+			DamageBoss(damage);
+		}
+	}
+}
+
+void StageScene::GiveItem(ItemType type, bool showPopup)
+{
+	items.Add(type);
+	RefreshPlayerStats();
+	inventoryHud.ShowItemGet(type, showPopup);
 }
 
 void StageScene::UpdateGameOver()
 {
 	gameOverTimer += kDeltaTime;
-	// 押しっぱなしで飛ばさないように、少し待ってから入力を受ける
-	if (gameOverTimer > 1.2f) {
-		if (input->TriggerKey(DIK_RETURN) || input->TriggerKey(DIK_SPACE) || input->TriggerPad(XINPUT_GAMEPAD_A)) {
-			// ゲームオーバー：同じキャラでもう一度（新しいフロア）　クリア：キャラ選択へ
-			SceneManager::GetInstance()->ChangeScene(isGameClear ? "SELECT" : "STAGE");
+	// 力尽きたときは、「GAME OVER」を少し見せてからリザルトを出す
+	if (isGameOver && !resultScreen.IsOpen() && gameOverTimer > kResultDelayAfterDeath) {
+		FinishRun(false);
+	}
+	resultScreen.Update(kDeltaTime);
+
+	// 押しっぱなしで飛ばさないように、リザルトが出て少し待ってから入力を受ける
+	if (resultScreen.CanAcceptInput()) {
+		if (input->TriggerKey(DIK_SPACE) || input->TriggerPad(XINPUT_GAMEPAD_A)) {
+			// 同じキャラでもう一度（1階から）
+			SceneManager::GetInstance()->ChangeScene("STAGE");
 			return;
 		}
 		if (input->TriggerKey(DIK_ESCAPE) || input->TriggerPad(XINPUT_GAMEPAD_B)) {
@@ -888,17 +1396,29 @@ void StageScene::Draw()
 	object3dCommon->CommonDrawSetting();
 	object3dCommon->SetPipelineState(kBlendModeNormal, false);
 	map.Draw();
+	// 星の杖の炎（床の上に置くので、床の次に描く）
+	legendary.Draw();
+	coins.Draw();
+	if (layout.shopRoom >= 0) {
+		gachaMachine->Draw();
+	}
+	if (layout.treasureRoom >= 0) {
+		chest->Draw();
+	}
 	for (std::unique_ptr<Enemy>& enemy : enemies) {
 		enemy->Draw();
 	}
 	if (boss) {
 		boss->Draw();
 	}
-	if (stairsActive) {
+	if (layout.exitRoom >= 0) {
 		stairs->Draw();
+		portal->Draw();
 	}
 	player->Draw();
 	bullets.Draw();
+	// バリア（半透明なので、不透明なものの後）
+	barrier.Draw();
 
 	// パーティクル（3Dの後）
 	ParticleManager::GetInstance()->Draw();
@@ -908,8 +1428,23 @@ void StageScene::Draw()
 	dxCommon->GetCommandList()->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
 	minimap.Draw();
 	buildHud.Draw();
+	inventoryHud.Draw();
 	hud.Draw();
 	growthChoice.Draw();
+	confirmDialog.Draw();
+	if (nearGacha && !growthChoice.IsOpen() && !confirmDialog.IsOpen() && !gachaEffect.IsPlaying() && !isGameOver && !isGameClear) {
+		(coinCount >= kGachaPrice ? gachaPrompt : gachaPromptPoor)->Draw();
+	}
+	if (nearChest && !growthChoice.IsOpen() && !confirmDialog.IsOpen() && !gachaEffect.IsPlaying() && !isGameOver && !isGameClear) {
+		chestPrompt->Draw();
+	}
+	// ガチャの演出（光るところは加算で描くので、ブレンドモードを切りかえる関数を渡す）
+	gachaEffect.Draw([this](BlendMode blendMode) {
+		spriteCommon->CommonDrawSetting(blendMode);
+		dxCommon->GetCommandList()->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
+	});
+	// リザルトは一番上に
+	resultScreen.Draw();
 }
 
 void StageScene::DrawDebugWindow()
@@ -918,15 +1453,70 @@ void StageScene::DrawDebugWindow()
 	ImGui::Begin("Stage");
 	ImGui::Text("WASD:move  Mouse:aim  LClick:shoot  RClick/Space:roll  Esc:select");
 	if (isGameOver) {
-		ImGui::TextColored({ 1.0f, 0.3f, 0.3f, 1.0f }, "GAME OVER  Enter/Pad A: retry  Esc/Pad B: select");
+		ImGui::TextColored({ 1.0f, 0.3f, 0.3f, 1.0f }, "GAME OVER  Space/Pad A: retry  Esc/Pad B: select");
 	}
 	ImGui::Text("Pad: LStick move / RStick aim / RT shoot / LT,LB,A roll");
 	ImGui::Text("Device: %s", playerInput.usingPad ? "Pad" : "Keyboard+Mouse");
 	ImGui::Text("Character: %s", GetCharacterData(CharacterSelection::GetSelected()).name);
-	ImGui::Text("Kills: %d", killCount);
+	ImGui::Text("Kills: %d   Coins: %d", killCount, coinCount);
+	if (ImGui::CollapsingHeader("Items", ImGuiTreeNodeFlags_DefaultOpen)) {
+		if (ImGui::Button("+100 Coins")) {
+			coinCount += 100;
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Warp to Shop")) {
+			player->SetPosition(map.GetRoomCenter(layout.shopRoom) + Vector3{ 0.0f, 0.0f, -3.0f });
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Warp to Treasure")) {
+			player->SetPosition(map.GetRoomCenter(layout.treasureRoom) + Vector3{ 0.0f, 0.0f, -3.0f });
+		}
+		// シークレット（伝説の武器）のテスト用
+		ImGui::Checkbox("Next Gacha: SECRET", &forceSecretNext);
+		ImGui::SameLine();
+		if (ImGui::Button("Get Legendary") && !legendary.IsOwned()) {
+			GiveLegendary();
+		}
+		ImGui::Text("Barrier: %d", barrier.GetCount());
+		ImGui::SameLine();
+		if (ImGui::Button("+1 Barrier")) {
+			barrier.Add();
+		}
+		// テスト用：ボタンでアイテムを足す
+		for (size_t i = 0; i < static_cast<size_t>(ItemType::kCount); ++i) {
+			ItemType type = static_cast<ItemType>(i);
+			ImGui::Text("%s x%d", ItemInventory::GetData(type).name, items.GetCount(type));
+			ImGui::SameLine();
+			ImGui::PushID(static_cast<int>(i));
+			if (ImGui::Button("+1")) {
+				GiveItem(type);
+			}
+			ImGui::PopID();
+		}
+	}
 	ImGui::Text("HP: %d / %d", player->GetHp(), player->GetMaxHp());
-	ImGui::Text("Floor: %d / %d   Time: %02d:%02d", floorIndex + 1, static_cast<int32_t>(GetFloorConfigs().size()),
-		static_cast<int32_t>(playTime) / 60, static_cast<int32_t>(playTime) % 60);
+	ImGui::Text("Floor: %dF   Time: %s   Run kills: %d  coins: %d", floorIndex + 1, ResultScreen::FormatTime(playTime).c_str(), runKills, runCoins);
+	{
+		RunRecord::Entry best = RunRecord::Load(CharacterSelection::GetSelected());
+		if (best.valid) {
+			ImGui::Text("Best: %dF %s", best.floor, ResultScreen::FormatTime(best.seconds).c_str());
+		} else {
+			ImGui::Text("Best: (none)");
+		}
+	}
+	// テスト用：出口の小部屋を開けてそこへ行く・すぐ帰還する
+	if (ImGui::Button("Open Exit + Warp")) {
+		// ボスを倒したことにして、出口の小部屋へ（テスト用）
+		if (layout.exitRoom >= 0) {
+			exitOpen = true;
+			map.SetRoomLocked(layout.exitRoom, false);
+			player->SetPosition(map.GetRoomCenter(layout.exitRoom));
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Return Now")) {
+		FinishRun(true);
+	}
 	if (boss) {
 		ImGui::Text("Boss HP: %.0f%%", boss->GetHpRate() * 100.0f);
 		if (ImGui::Button("Boss -25% HP")) {

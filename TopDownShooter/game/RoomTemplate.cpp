@@ -12,6 +12,7 @@ void RoomTemplateLibrary::Load(const std::string& directory)
 	combatRooms.clear();
 	treasureRooms.clear();
 	bossRooms.clear();
+	shopRooms.clear();
 
 	// フォルダの中の .txt を、名前の順に読む（毎回同じ順番になるように並べる）
 	std::vector<std::filesystem::path> paths;
@@ -39,11 +40,13 @@ void RoomTemplateLibrary::Load(const std::string& directory)
 			treasureRooms.push_back(roomTemplate);
 		} else if (name.rfind("boss_", 0) == 0) {
 			bossRooms.push_back(roomTemplate);
+		} else if (name.rfind("shop_", 0) == 0) {
+			shopRooms.push_back(roomTemplate);
 		}
 	}
 
 	// 足りない種類は、ただの四角い部屋で埋める（ファイルを置き忘れても止まらないように）
-	for (std::vector<RoomTemplate>* list : { &startRooms, &combatRooms, &treasureRooms, &bossRooms }) {
+	for (std::vector<RoomTemplate>* list : { &startRooms, &combatRooms, &treasureRooms, &bossRooms, &shopRooms }) {
 		if (list->empty()) {
 			list->push_back(MakeEmptyRoom());
 		}
@@ -59,6 +62,8 @@ const std::vector<RoomTemplate>& RoomTemplateLibrary::Get(RoomType type) const
 		return treasureRooms;
 	case RoomType::kBoss:
 		return bossRooms;
+	case RoomType::kShop:
+		return shopRooms;
 	case RoomType::kCombat:
 	default:
 		return combatRooms;

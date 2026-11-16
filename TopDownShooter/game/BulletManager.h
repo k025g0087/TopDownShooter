@@ -7,6 +7,7 @@
 #include "Mathutility.h"
 #include "Object3d.h"
 #include "CharacterData.h"
+#include "ItemData.h"
 
 class Camera;
 
@@ -35,6 +36,12 @@ public:
 		float growth = 0.0f;
 		uint64_t hitMask = 0;    // もう当たった敵（敵の番号のビット）。貫通する弾が同じ敵に何度も当たらないように
 		bool fromPlayer = true;  // プレイヤーの弾か（敵の弾か）
+		// ---- アイテムで付く性能 ----
+		int32_t bounceLeft = 0;       // あと何回、壁で跳ね返るか（跳ね返り）
+		float homingTurnSpeed = 0.0f; // 敵へ曲がる速さ（追尾）
+		int32_t splitCount = 0;       // 敵に当たったときに分かれる数（分裂。0なら分かれない）
+		// ---- 伝説の武器で付く性能 ----
+		bool rainOnEnd = false;       // 消えた場所に矢の雨を降らせる（天弓）
 	};
 
 	void Initialize(const std::string& defaultModelName);
@@ -45,6 +52,11 @@ public:
 	{
 		Fire(position, direction, stats.bulletSpeed, stats.bulletLifeTime, stats.bulletDamage, style, fromPlayer);
 	}
+	// プレイヤーの攻撃：アイテムの性能（大きさ・跳ね返り・追尾・分裂）も付ける。拡散は撃つ側で弾の数を増やす
+	// 出した弾を返す（空きがなくて出せなかったら nullptr）
+	Bullet* Fire(const Vector3& position, const Vector3& direction, const PlayerStats& stats, const ShotStyle& style, const ShotModifiers& modifiers);
+	// 分裂した小さな弾を出す（元の弾の性能を少し弱めて受け継ぐ。もう分裂はしない）
+	void FireSplit(const Bullet& parent, const Vector3& direction, const std::string& modelName);
 	// 敵の弾を全部消す（部屋をクリアしたときなど）
 	void ClearEnemyBullets();
 	// 更新（limit：闘技場の端。外に出たら消す）
@@ -58,6 +70,9 @@ public:
 	static float GetCurrentRadius(const Bullet& bullet) { return bullet.radius * (1.0f + bullet.growth * bullet.age); }
 
 private:
+	// 弾を1発出して、その弾を返す（空きがなければ nullptr）
+	Bullet* FireAndGet(const Vector3& position, const Vector3& direction, float speed, float lifeTime, float damage, const ShotStyle& style, bool fromPlayer);
+
 	std::array<Bullet, kMaxBullets> bullets;
 	// 弾ごとの見た目（弾と同じ番号）
 	std::vector<std::unique_ptr<Object3d>> objects;

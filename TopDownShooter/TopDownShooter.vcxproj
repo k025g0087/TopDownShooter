@@ -265,20 +265,30 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Game.cpp" />
+    <ClCompile Include="game\Barrier.cpp" />
     <ClCompile Include="game\BuildHud.cpp" />
     <ClCompile Include="game\BuildSystem.cpp" />
     <ClCompile Include="game\BulletManager.cpp" />
     <ClCompile Include="game\CharacterData.cpp" />
+    <ClCompile Include="game\CharacterRig.cpp" />
     <ClCompile Include="game\CharacterSelectScene.cpp" />
+    <ClCompile Include="game\CoinManager.cpp" />
+    <ClCompile Include="game\ConfirmDialog.cpp" />
     <ClCompile Include="game\DragonBoss.cpp" />
     <ClCompile Include="game\DungeonGenerator.cpp" />
     <ClCompile Include="game\DungeonMap.cpp" />
     <ClCompile Include="game\Enemy.cpp" />
+    <ClCompile Include="game\GachaEffect.cpp" />
     <ClCompile Include="game\GrowthChoice.cpp" />
+    <ClCompile Include="game\InventoryHud.cpp" />
+    <ClCompile Include="game\ItemData.cpp" />
+    <ClCompile Include="game\LegendaryWeapon.cpp" />
     <ClCompile Include="game\Minimap.cpp" />
     <ClCompile Include="game\Player.cpp" />
     <ClCompile Include="game\PlayerInput.cpp" />
+    <ClCompile Include="game\ResultScreen.cpp" />
     <ClCompile Include="game\RoomTemplate.cpp" />
+    <ClCompile Include="game\RunRecord.cpp" />
     <ClCompile Include="game\StageHud.cpp" />
     <ClCompile Include="game\StageScene.cpp" />
     <ClCompile Include="main.cpp" />
@@ -287,21 +297,31 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Game.h" />
+    <ClInclude Include="game\Barrier.h" />
     <ClInclude Include="game\BossBase.h" />
     <ClInclude Include="game\BuildHud.h" />
     <ClInclude Include="game\BuildSystem.h" />
     <ClInclude Include="game\BulletManager.h" />
     <ClInclude Include="game\CharacterData.h" />
+    <ClInclude Include="game\CharacterRig.h" />
     <ClInclude Include="game\CharacterSelectScene.h" />
+    <ClInclude Include="game\CoinManager.h" />
+    <ClInclude Include="game\ConfirmDialog.h" />
     <ClInclude Include="game\DragonBoss.h" />
     <ClInclude Include="game\DungeonGenerator.h" />
     <ClInclude Include="game\DungeonMap.h" />
     <ClInclude Include="game\Enemy.h" />
+    <ClInclude Include="game\GachaEffect.h" />
     <ClInclude Include="game\GrowthChoice.h" />
+    <ClInclude Include="game\InventoryHud.h" />
+    <ClInclude Include="game\ItemData.h" />
+    <ClInclude Include="game\LegendaryWeapon.h" />
     <ClInclude Include="game\Minimap.h" />
     <ClInclude Include="game\Player.h" />
     <ClInclude Include="game\PlayerInput.h" />
+    <ClInclude Include="game\ResultScreen.h" />
     <ClInclude Include="game\RoomTemplate.h" />
+    <ClInclude Include="game\RunRecord.h" />
     <ClInclude Include="game\StageHud.h" />
     <ClInclude Include="game\StageScene.h" />
     <ClInclude Include="SceneFactory.h" />

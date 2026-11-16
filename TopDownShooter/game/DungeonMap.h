@@ -57,6 +57,9 @@ public:
 	const RoomArea& GetRoomArea(int32_t roomIndex) const { return roomAreas[static_cast<size_t>(roomIndex)]; }
 	// 部屋の真ん中（ワールド座標）
 	Vector3 GetRoomCenter(int32_t roomIndex) const;
+	// 出口の小部屋の、下へ行く階段と帰還の転送陣の位置（ワールド座標）
+	const Vector3& GetExitStairsPosition() const { return exitStairsPosition; }
+	const Vector3& GetExitPortalPosition() const { return exitPortalPosition; }
 
 	// マス ⇔ ワールド座標
 	static Vector3 TileCenter(int32_t x, int32_t y);
@@ -69,12 +72,18 @@ public:
 	static inline const char* kModelFloorRoom = "test_floor_room.obj";
 	static inline const char* kModelFloorBoss = "test_floor_boss.obj";
 	static inline const char* kModelFloorTreasure = "test_floor_treasure.obj";
+	static inline const char* kModelFloorShop = "test_floor_shop.obj";
 	static inline const char* kModelFloorCorridor = "test_floor_corridor.obj";
+	static inline const char* kModelFloorExit = "test_floor_exit.obj"; // 出口の小部屋の床（1マス）
 
 private:
 	Tile GetTile(int32_t x, int32_t y) const;
 	void SetTile(int32_t x, int32_t y, Tile tile);
 	bool IsSolidTile(int32_t x, int32_t y) const;
+	// ひな形の部屋を書き込む（敵が出てくる場所も集める）
+	void BuildTemplateRoom(RoomNode& room, RoomArea& area, const RoomTemplateLibrary& library, std::mt19937& random);
+	// 出口の小部屋を書き込む（ひな形は使わず、まわりを壁で埋めた小さな部屋にする）
+	void BuildExitRoom(const RoomArea& area);
 	// 見た目のオブジェクトを1つ作る
 	void AddObject(const char* modelName, const Vector3& position, const Vector2& halfSize, int32_t doorRoom);
 
@@ -87,6 +96,16 @@ private:
 	std::vector<int32_t> doorOwners;
 	std::vector<RoomArea> roomAreas;
 	DungeonLayout layout;
+	// 出口の小部屋
+	Vector3 exitStairsPosition = { 0.0f, 0.0f, 0.0f };
+	Vector3 exitPortalPosition = { 0.0f, 0.0f, 0.0f };
+	int32_t exitStairsTileX = -1; // 階段の穴のマス。ここには床を置かない
+	int32_t exitStairsTileY = -1;
+	// 出口の小部屋の、床のある範囲（部屋の中のマス。両端を含む）
+	static inline const int32_t kExitLeft = 4;
+	static inline const int32_t kExitRight = 12;
+	static inline const int32_t kExitTop = 3;
+	static inline const int32_t kExitBottom = 9;
 
 	// 見た目（壁・扉・床）。doorRoom：扉なら持ち主の部屋（閉まっているときだけ描く）、扉でなければ -1
 	struct MapObject {

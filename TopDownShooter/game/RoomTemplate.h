@@ -19,7 +19,7 @@ struct RoomTemplate {
 class RoomTemplateLibrary
 {
 public:
-	// フォルダの中のひな形を全部読む（ファイル名の頭で種類を分ける：start_ / combat_ / treasure_ / boss_）
+	// フォルダの中のひな形を全部読む（ファイル名の頭で種類を分ける：start_ / combat_ / treasure_ / boss_ / shop_）
 	void Load(const std::string& directory);
 
 	const std::vector<RoomTemplate>& Get(RoomType type) const;
@@ -34,4 +34,5 @@ private:
 	std::vector<RoomTemplate> combatRooms;
 	std::vector<RoomTemplate> treasureRooms;
 	std::vector<RoomTemplate> bossRooms;
+	std::vector<RoomTemplate> shopRooms;
 };

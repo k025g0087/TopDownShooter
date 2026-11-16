@@ -15,8 +15,16 @@
 #include "BuildSystem.h"
 #include "BuildHud.h"
 #include "GrowthChoice.h"
+#include "ConfirmDialog.h"
+#include "GachaEffect.h"
+#include "LegendaryWeapon.h"
+#include "ResultScreen.h"
 #include "BossBase.h"
 #include "DragonBoss.h"
+#include "ItemData.h"
+#include "CoinManager.h"
+#include "InventoryHud.h"
+#include "Barrier.h"
 #include "CharacterData.h"
 #include "DungeonGenerator.h"
 #include "RoomTemplate.h"
@@ -61,8 +69,34 @@ private: // メンバ関数
 	void DamageBoss(float damage);
 	// ボスを倒したときの、大きめの力の選択
 	void OpenBossGrowthChoice();
-	// 階段に乗った：次のフロアへ（最後ならクリア）
+	// 次のフロアへ（フロアの決まりが足りなくなったら、最後のフロアの決まりをくり返す＝エンドレス）
 	void GoToNextFloor();
+	// 出口の小部屋：階段・転送陣に触れたら確認画面を出す
+	void UpdateExit();
+	// 確認画面（はい／いいえ）が出ている間の更新
+	void UpdateConfirm();
+	// この挑戦を終わらせて、リザルトを開く（returned：帰還したか）
+	void FinishRun(bool returned);
+	// プレイヤーのステータスを計算し直す（ビルド＋アイテム）
+	void RefreshPlayerStats();
+	// プレイヤーの攻撃を撃つ（アイテムの拡散で弾が増える）
+	void FirePlayerShot(const Vector3& position, const Vector3& direction);
+	// アイテム：追尾（弾を近くの敵へ曲げる）・跳ね返り・分裂
+	void UpdateHoming();
+	void BounceBullet(BulletManager::Bullet& bullet);
+	void SplitBullet(BulletManager::Bullet& bullet);
+	// ショップのガチャ：近づいたら案内を出して、E／パッドのXで回す
+	void UpdateGacha();
+	// 宝部屋の宝箱：近づいたら案内を出して、E／パッドのXで開ける（バリアが1枚もらえる）
+	void UpdateChest();
+	// 伝説の武器を手に入れる
+	void GiveLegendary();
+	// 伝説の武器の効果：聖剣（斬撃で敵の弾を消す）・天弓（消えた矢の場所に矢の雨）・見た目
+	void UpdateLegendary();
+	// 範囲の中の敵とボスにダメージ（炎・矢の雨で使う。演出は呼ぶ側で出す）
+	void DamageArea(const Vector3& center, float radius, float damage);
+	// アイテムを手に入れる（showPopup：「○○を手に入れた！」を出すか）
+	void GiveItem(ItemType type, bool showPopup = true);
 	// 敵にダメージを与える（倒したら数を数えて、画面を揺らす）
 	void DamageEnemy(Enemy& enemy, float damage, const Vector3& direction);
 	// 敵の更新（動き・弾・押し合い・壁）
@@ -73,7 +107,7 @@ private: // メンバ関数
 	void CheckPlayerHits();
 	// プレイヤーにダメージを与える（無敵中なら何もしない）
 	void DamagePlayer(int32_t amount);
-	// ゲームオーバー中の更新（入力でやり直す）
+	// ゲームオーバー・帰還の後の更新（リザルトを出して、入力でやり直す）
 	void UpdateGameOver();
 	// 部屋をクリアしたら、取り込む力を選ぶ画面を開く
 	void OpenGrowthChoice();
@@ -117,15 +151,60 @@ private: // メンバ変数
 	// ボス（ボス部屋に入ったら出てくる）と、このフロアのボスの種類
 	std::unique_ptr<BossBase> boss;
 	BossType floorBoss = BossType::kDragon;
-	// 階段（ボスを倒すと部屋の真ん中に出る）
+	// 出口の小部屋（ボス部屋の先）：下へ行く階段と帰還の転送陣。ボスを倒すまで扉が閉まっている
 	std::unique_ptr<Object3d> stairs;
-	Vector3 stairsPosition = { 0.0f, 0.0f, 0.0f };
-	bool stairsActive = false;
-	bool stairsArmed = false; // 一度離れたか
+	std::unique_ptr<Object3d> portal;
+	bool exitOpen = false;
+	bool stairsArmed = true;  // 一度離れたか（確認で「いいえ」を選んだら、離れるまでは触れても出さない）
+	bool portalArmed = true;
+	static inline const float kStairsTouchRadius = 0.9f;  // これより近づくと階段に触れた
+	static inline const float kPortalTouchRadius = 1.3f;  // これより近づくと転送陣に触れた
+	static inline const float kRearmDistance = 2.2f;      // これより離れると、また触れられる
+
+	// ---- アイテム・コイン・ガチャ ----
+	ItemInventory items;
+	CoinManager coins;
+	InventoryHud inventoryHud;
+	int32_t coinCount = 0;
+	std::unique_ptr<Object3d> gachaMachine;
+	Vector3 gachaPosition = { 0.0f, 0.0f, 0.0f };
+	bool nearGacha = false;
+	std::unique_ptr<Sprite> gachaPrompt;     // 「E・Ⓧ：ガチャを回す（40コイン）」
+	std::unique_ptr<Sprite> gachaPromptPoor; // 「コインが足りない（40コイン）」
+	static inline const int32_t kGachaPrice = 40;        // ガチャ1回のコイン（案内の画像にも 40 と書いてある）
+	static inline const float kGachaRadius = 0.9f;       // ガチャの当たり判定の半径
+	static inline const float kGachaUseDistance = 2.2f;  // これより近いと回せる
+	static inline const float kHomingRange = 10.0f;      // 追尾する弾が敵を探す距離
+
+	// ---- 宝箱・バリア ----
+	Barrier barrier;
+	std::unique_ptr<Object3d> chest;
+	Vector3 chestPosition = { 0.0f, 0.0f, 0.0f };
+	bool chestOpened = false;
+	bool nearChest = false;
+	std::unique_ptr<Sprite> chestPrompt; // 「E・Ⓧ：宝箱を開ける」
+	static inline const float kChestRadius = 0.8f;       // 宝箱の当たり判定の半径
+	static inline const float kChestUseDistance = 2.0f;  // これより近いと開けられる
 	// 今のフロア（0から）と、遊んだ時間（秒）
 	int32_t floorIndex = 0;
 	float playTime = 0.0f;
-	bool isGameClear = false;
+	bool isGameClear = false; // 帰還した
+	// この挑戦全体で倒した敵・集めたコイン（リザルトで出す。killCount はフロアごと）
+	int32_t runKills = 0;
+	int32_t runCoins = 0;
+	// 確認画面（次の層へ進む？・帰還する？）と、リザルト
+	ConfirmDialog confirmDialog;
+	// ガチャを回したときの、画面全体の演出
+	GachaEffect gachaEffect;
+	// シークレット：伝説の武器（とても低い確率でガチャから出る。1回の挑戦で1つだけ）
+	LegendaryWeapon legendary;
+	static inline const int32_t kSecretOdds = 10000; // 1万回に1回（0.01%）
+	bool forceSecretNext = false;                    // 調整用：次のガチャを必ずシークレットにする
+	std::string legendaryWeaponModel;                // 伝説の武器を持ったとき、虹色に光らせる手のモデル
+	// 矢の雨（天弓）：前のフレームで「消えたら雨を降らせる弾」だったか（弾の番号ごと）
+	std::array<bool, BulletManager::kMaxBullets> rainBulletAlive = {};
+	ResultScreen resultScreen;
+	static inline const float kResultDelayAfterDeath = 1.6f; // 力尽きてからリザルトが出るまで（秒）
 
 	// ---- ダンジョン ----
 	RoomTemplateLibrary roomLibrary;
@@ -139,6 +218,9 @@ private: // メンバ変数
 	GrowthChoice growthChoice;
 	// 今の部屋で倒した数（敵の種類ごと）
 	std::array<int32_t, static_cast<size_t>(EnemyType::kCount)> roomKillCounts = {};
+	// 画面（力の選択・確認など）を閉じたあと、攻撃ボタンを一度はなすまでは撃たない
+	// （クリックで決定したとき、そのまま押しっぱなしで弾が出てしまわないように）
+	bool holdFireUntilRelease = false;
 	// ゲームオーバーになったか
 	bool isGameOver = false;
 	float gameOverTimer = 0.0f; // ゲームオーバーになってからの時間（すぐには入力を受けない）

@@ -11,6 +11,8 @@ namespace {
 	const Vector4 kColorCurrent = { 1.0f, 0.85f, 0.25f, 1.0f };   // 今いる部屋
 	const Vector4 kColorBoss = { 0.95f, 0.3f, 0.3f, 1.0f };       // ボス部屋
 	const Vector4 kColorTreasure = { 0.95f, 0.75f, 0.2f, 1.0f };  // 宝部屋
+	const Vector4 kColorShop = { 0.35f, 0.85f, 0.95f, 1.0f };     // ショップ
+	const Vector4 kColorExit = { 0.55f, 0.5f, 1.0f, 1.0f };       // 出口の小部屋
 	const Vector4 kColorConnection = { 0.7f, 0.7f, 0.75f, 1.0f };
 }
 
@@ -105,6 +107,10 @@ void Minimap::Update(const std::vector<bool>& visited, int32_t currentRoom)
 			color = kColorBoss;
 		} else if (room.type == RoomType::kTreasure) {
 			color = kColorTreasure;
+		} else if (room.type == RoomType::kShop) {
+			color = kColorShop;
+		} else if (room.type == RoomType::kExit) {
+			color = kColorExit;
 		}
 		if (!visited[i]) {
 			// 行っていない特別な部屋は、少し暗くする

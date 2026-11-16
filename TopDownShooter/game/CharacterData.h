@@ -33,11 +33,34 @@ struct ShotStyle {
 	float growth = 0.0f;               // 飛びながら大きくなる割合（1秒あたり）
 };
 
+// 攻撃するときの体の動き
+enum class AttackMotion {
+	kSwing,  // 剣を横に振る（右手）
+	kThrust, // 杖を前へ突き出す（右手）
+	kDraw,   // 弓を引く（左手で弓を前へ、右手で弦を引く）
+};
+
+// キャラの体の部品（動かすために、体・足・右手・左手のモデルを分けている）
+// オフセット：足元を原点、前を +Z、右を +X としたときの、部品を置く位置
+struct CharacterParts {
+	std::string body;       // 体（頭も含む）
+	std::string foot;       // 足（右足と左足で同じモデルを使う）
+	std::string rightHand;  // 右手
+	std::string leftHand;   // 左手
+	Vector3 bodyOffset = { 0.0f, 0.0f, 0.0f };
+	Vector3 footOffset = { 0.0f, 0.0f, 0.0f };  // 右足の位置（左足は X を反対にする）
+	Vector3 rightHandOffset = { 0.0f, 0.0f, 0.0f };
+	Vector3 leftHandOffset = { 0.0f, 0.0f, 0.0f };
+	AttackMotion attackMotion = AttackMotion::kSwing;
+	bool weaponInLeftHand = false; // 武器（弓など）を左手に持つか。弓を引く動きで、どちらの手を前に出すかに使う
+};
+
 // キャラ1人分のデータ
 struct CharacterData {
 	CharacterType type = CharacterType::kKnight;
 	const char* name = "";            // 表示名（ImGui 用。英字）
-	std::string modelName;            // プレイヤーの見た目のモデル
+	std::string modelName;            // 全部の部品をまとめたモデル（選択画面で使う）
+	CharacterParts parts;             // ゲーム中に動かす部品
 	std::string cardTexture;          // 選択画面の説明カードの画像
 	PlayerStats stats;                // 初期ステータス
 	ShotStyle shot;                   // 攻撃の性質

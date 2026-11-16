@@ -16,4 +16,10 @@ public: // メンバ関数
 
 	// 描画
 	void Draw() override;
+
+protected: // メンバ関数
+	// タイトルバーに表示する文字列
+	const wchar_t* GetWindowTitle() const override { return L"TopDownShooter"; }
+	// 起動時はフルスクリーン（ウィンドウで起動したいときは false にする）
+	bool StartInFullscreen() const override { return true; }
 };
