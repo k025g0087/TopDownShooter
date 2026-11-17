@@ -14,6 +14,9 @@ class DragonBoss : public BossBase
 public:
 	// 使うモデル（シーンで読み込む）
 	static inline const char* kModelBody = "test_dragon.obj";
+	static inline const char* kModelJaw = "test_dragon_jaw.obj";            // 下あご（口の開閉）
+	static inline const char* kModelWingRight = "test_dragon_wing_nx.obj";  // 翼（画面の右側＝+X側）
+	static inline const char* kModelWingLeft = "test_dragon_wing_px.obj";   // 翼（-X側）
 	static inline const char* kModelShadow = "test_shadow.obj";
 	static inline const char* kModelWarning = "test_warning.obj";
 	static inline const char* kTextureName = "resources/boss_name_dragon.png";
@@ -75,6 +78,9 @@ private:
 	float PhaseRate() const { return isPhase2 ? 1.35f : 1.0f; }
 
 	std::unique_ptr<Object3d> body;
+	std::unique_ptr<Object3d> jaw;
+	std::unique_ptr<Object3d> wingRight;
+	std::unique_ptr<Object3d> wingLeft;
 	std::unique_ptr<Object3d> shadow;
 	std::array<Warning, 16> warnings;
 	std::minstd_rand random;

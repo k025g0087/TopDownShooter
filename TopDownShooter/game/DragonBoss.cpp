@@ -21,6 +21,52 @@ namespace {
 	const float kPhaseChangeTime = 1.5f;
 	const float kDyingTime = 2.5f;
 
+	// 胴の動き（拡縮・回転・位置）に、パーツ（翼・あご）の動きを重ねて、1つの Transform にする
+	// パーツのモデルは「関節が原点」。pivot＝胴の中での関節の位置、localRotate＝パーツ自身の回転
+	struct PartTransform {
+		Vector3 scale;
+		Vector3 rotate;
+		Vector3 translate;
+	};
+
+	PartTransform ComposePart(const Vector3& bodyScale, const Vector3& bodyRotate, const Vector3& bodyTranslate, const Vector3& pivot, const Vector3& localRotate)
+	{
+		Matrix4x4 localRotateMatrix = Multiply(MakeRotateXMatrix(localRotate.x), Multiply(MakeRotateYMatrix(localRotate.y), MakeRotateZMatrix(localRotate.z)));
+		Matrix4x4 local = Multiply(localRotateMatrix, MakeTranslateMatrix(pivot));
+		Matrix4x4 m = Multiply(local, MakeAffineMatrix(bodyScale, bodyRotate, bodyTranslate));
+
+		// 行列を拡縮・回転（X→Y→Z の順）・移動に分ける
+		PartTransform result;
+		float rowLength[3];
+		for (int row = 0; row < 3; ++row) {
+			rowLength[row] = std::sqrt(m.m[row][0] * m.m[row][0] + m.m[row][1] * m.m[row][1] + m.m[row][2] * m.m[row][2]);
+			if (rowLength[row] < 1e-6f) { rowLength[row] = 1.0f; }
+		}
+		result.scale = { rowLength[0], rowLength[1], rowLength[2] };
+		float r[3][3];
+		for (int row = 0; row < 3; ++row) {
+			for (int col = 0; col < 3; ++col) {
+				r[row][col] = m.m[row][col] / rowLength[row];
+			}
+		}
+		float sinY = (std::max)(-1.0f, (std::min)(1.0f, -r[0][2]));
+		result.rotate.y = std::asin(sinY);
+		if (std::fabs(sinY) < 0.9999f) {
+			result.rotate.x = std::atan2(r[1][2], r[2][2]);
+			result.rotate.z = std::atan2(r[0][1], r[0][0]);
+		} else {
+			result.rotate.x = std::atan2(-r[2][1], r[1][1]);
+			result.rotate.z = 0.0f;
+		}
+		result.translate = { m.m[3][0], m.m[3][1], m.m[3][2] };
+		return result;
+	}
+
+	// 翼の根元と、あごの関節の位置（胴のモデルの中の座標）
+	const Vector3 kWingPivotRight = { 0.7f, 1.9f, 0.3f };
+	const Vector3 kWingPivotLeft = { -0.7f, 1.9f, 0.3f };
+	const Vector3 kJawPivot = { 0.0f, 2.38f, 2.5f };
+
 	// 角度の差を -π〜π にする
 	float WrapAngle(float angle)
 	{
@@ -46,6 +92,15 @@ void DragonBoss::Initialize(const Vector3& startPosition, const Vector3& center,
 	body = std::make_unique<Object3d>();
 	body->Initialize(Object3dCommon::GetInstance());
 	body->SetModel(kModelBody);
+	jaw = std::make_unique<Object3d>();
+	jaw->Initialize(Object3dCommon::GetInstance());
+	jaw->SetModel(kModelJaw);
+	wingRight = std::make_unique<Object3d>();
+	wingRight->Initialize(Object3dCommon::GetInstance());
+	wingRight->SetModel(kModelWingRight);
+	wingLeft = std::make_unique<Object3d>();
+	wingLeft->Initialize(Object3dCommon::GetInstance());
+	wingLeft->SetModel(kModelWingLeft);
 	shadow = std::make_unique<Object3d>();
 	shadow->Initialize(Object3dCommon::GetInstance());
 	shadow->SetModel(kModelShadow);
@@ -341,42 +396,84 @@ void DragonBoss::UpdateModel()
 	Vector3 rotate = { 0.0f, facingAngle, 0.0f };
 	Vector3 offset = { 0.0f, height, 0.0f };
 
+	// 翼とあごの動き：翼の flap＝上げ下げ、sweep＝うしろへたたむ角度、jawOpen＝口の開き
+	const float kFoldSweep = 1.15f, kRelaxSweep = 0.75f, kSpreadSweep = 0.15f;
+	float wingFlap = 0.45f;
+	float wingSweep = kRelaxSweep;
+	float jawOpen = 0.05f + 0.03f * std::sin(time * 2.0f);
+
 	switch (state) {
 	case State::kIntro:
 		// 地面からせり上がる
 		offset.y = -3.0f * (1.0f - (std::min)(t * 1.5f, 1.0f));
+		wingSweep = kFoldSweep;
 		if (t > 0.7f) {
 			float roar = (t - 0.7f) / 0.3f;
 			scale = { 1.0f + 0.1f * roar, 1.0f + 0.1f * roar, 1.0f + 0.1f * roar };
+			// 吠えながら翼を大きく広げる
+			wingSweep = kFoldSweep + (kSpreadSweep - kFoldSweep) * roar;
+			wingFlap = 0.45f + 0.2f * roar;
+			jawOpen = 0.75f * roar;
 		}
 		break;
 	case State::kMove:
 		// のしのし歩く
 		offset.y += std::fabs(std::sin(time * 4.0f * PhaseRate())) * 0.12f;
+		wingFlap += 0.06f * std::sin(time * 2.2f * PhaseRate());
 		break;
 	case State::kBreathWindup:
 		rotate.x = -0.35f * t; // 首を引く
+		wingSweep = kRelaxSweep + (kSpreadSweep - kRelaxSweep) * t;
+		jawOpen = 0.1f + 0.45f * t;
 		break;
 	case State::kBreath:
 		rotate.x = 0.1f;
 		offset += Vector3{ std::sin(time * 50.0f) * 0.04f, 0.0f, 0.0f };
+		wingSweep = kSpreadSweep;
+		wingFlap = 0.5f + 0.04f * std::sin(time * 30.0f);
+		jawOpen = 0.55f + 0.06f * std::sin(time * 40.0f);
 		break;
 	case State::kSweepWindup:
 		scale = { 1.0f + 0.1f * t, 1.0f - 0.15f * t, 1.0f + 0.1f * t }; // しゃがむ
 		rotate.y -= 0.4f * t;
+		wingSweep = kRelaxSweep + (kFoldSweep - kRelaxSweep) * t;
+		jawOpen = 0.12f;
 		break;
 	case State::kSweep:
 		rotate.y += kPi * 2.0f * t - 0.4f * (1.0f - t); // 1回転
+		wingSweep = kFoldSweep;
+		jawOpen = 0.12f;
+		break;
+	case State::kTakeoff:
+		// 翼を大きく広げて羽ばたきはじめる
+		wingSweep = kSpreadSweep;
+		wingFlap = 0.2f + (0.35f + 0.5f * t) * std::sin(time * 12.0f);
+		jawOpen = 0.2f;
+		break;
+	case State::kFlying:
+		wingSweep = kSpreadSweep;
+		wingFlap = 0.2f + 0.6f * std::sin(time * 9.0f);
+		jawOpen = 0.3f;
+		break;
+	case State::kLanding:
+		wingSweep = kSpreadSweep + (kRelaxSweep - kSpreadSweep) * t;
+		wingFlap = 0.3f + 0.5f * (1.0f - t) * std::sin(time * 14.0f);
 		break;
 	case State::kPhaseChange:
 		// 吠えて震える
 		scale = { 1.1f, 1.1f, 1.1f };
 		offset += Vector3{ std::sin(time * 60.0f) * 0.08f, 0.0f, std::cos(time * 53.0f) * 0.08f };
 		rotate.x = -0.3f;
+		wingSweep = kSpreadSweep;
+		wingFlap = 0.65f + 0.1f * std::sin(time * 45.0f);
+		jawOpen = 0.7f + 0.05f * std::sin(time * 55.0f);
 		break;
 	case State::kDying:
 		offset += Vector3{ std::sin(time * 70.0f) * 0.1f, -0.6f * t, 0.0f };
 		rotate.z = 0.5f * t;
+		wingSweep = kRelaxSweep + (kFoldSweep - kRelaxSweep) * t;
+		wingFlap = 0.45f - 1.0f * t; // 翼がだらんと垂れる
+		jawOpen = 0.5f;
 		break;
 	default:
 		break;
@@ -392,6 +489,23 @@ void DragonBoss::UpdateModel()
 	body->SetRotate(rotate);
 	body->SetTranslate(position + offset);
 	body->Update();
+
+	// 翼とあご：胴の動きに合わせて、自分の動きを重ねる
+	// （胴がしゃがんで縦横の比率が変わるときも、パーツはゆがませず平均の大きさにする）
+	const float partScaleValue = (scale.x + scale.y + scale.z) / 3.0f;
+	const Vector3 partScale = { partScaleValue, partScaleValue, partScaleValue };
+	const Vector3 bodyTranslate = position + offset;
+	auto applyPart = [&](Object3d& part, const Vector3& pivot, const Vector3& localRotate) {
+		PartTransform transform = ComposePart(partScale, rotate, bodyTranslate, pivot, localRotate);
+		part.SetScale(transform.scale);
+		part.SetRotate(transform.rotate);
+		part.SetTranslate(transform.translate);
+		part.Update();
+	};
+	applyPart(*jaw, kJawPivot, { jawOpen, 0.0f, 0.0f });
+	// 右（+X）の翼は上げるとき +、左（-X）の翼は逆向きにする
+	applyPart(*wingRight, kWingPivotRight, { 0.0f, wingSweep, wingFlap });
+	applyPart(*wingLeft, kWingPivotLeft, { 0.0f, -wingSweep, -wingFlap });
 
 	// 影：飛ぶと小さくなる
 	float shadowScale = 1.0f - 0.5f * (height / kFlyHeight);
@@ -409,6 +523,9 @@ void DragonBoss::Draw()
 		shadow->Draw();
 	}
 	body->Draw();
+	jaw->Draw();
+	wingRight->Draw();
+	wingLeft->Draw();
 	for (Warning& warning : warnings) {
 		if (warning.active) {
 			warning.object->Draw();
@@ -419,6 +536,9 @@ void DragonBoss::Draw()
 void DragonBoss::SetCamera(Camera* camera)
 {
 	body->SetCamera(camera);
+	jaw->SetCamera(camera);
+	wingRight->SetCamera(camera);
+	wingLeft->SetCamera(camera);
 	shadow->SetCamera(camera);
 	for (Warning& warning : warnings) {
 		warning.object->SetCamera(camera);

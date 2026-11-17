@@ -117,7 +117,7 @@ void StageScene::Initialize()
 
 	// モデルの読み込み（2回目は自動で飛ばされる）。陰影がつくように Half Lambert にする
 	ModelManager* modelManager = ModelManager::GetInstance();
-	std::vector<std::string> litModels = { character.parts.body, character.parts.foot, character.parts.rightHand, character.parts.leftHand, DungeonMap::kModelWall, DungeonMap::kModelDoor, DragonBoss::kModelBody, kModelGacha, kModelChest, kModelChestOpen, kModelStairs };
+	std::vector<std::string> litModels = { character.parts.body, character.parts.foot, character.parts.rightHand, character.parts.leftHand, DungeonMap::kModelWall, DungeonMap::kModelDoor, DragonBoss::kModelBody, DragonBoss::kModelJaw, DragonBoss::kModelWingRight, DragonBoss::kModelWingLeft, kModelGacha, kModelChest, kModelChestOpen, kModelStairs };
 	for (size_t i = 0; i < static_cast<size_t>(EnemyType::kCount); ++i) {
 		litModels.push_back(Enemy::GetData(static_cast<EnemyType>(i)).modelName);
 	}
@@ -1810,7 +1810,11 @@ void StageScene::Draw()
 		stairs->Draw();
 		portal->Draw();
 	}
-	player->Draw();
+	// ボスの登場演出の間は、プレイヤーを隠す（ボスだけを見せる）
+	const bool isBossIntro = bossIntroTimer > 0.0f && boss;
+	if (!isBossIntro) {
+		player->Draw();
+	}
 	bullets.Draw();
 	// バリア（半透明なので、不透明なものの後）
 	barrier.Draw();
@@ -1821,10 +1825,13 @@ void StageScene::Draw()
 	// 2D（ミニマップ・ハート・ゲームオーバー）
 	spriteCommon->CommonDrawSetting(kBlendModeNormal);
 	dxCommon->GetCommandList()->SetGraphicsRootConstantBufferView(3, directionalLightResource->GetGPUVirtualAddress());
-	minimap.Draw();
-	buildHud.Draw();
-	inventoryHud.Draw();
-	hud.Draw();
+	// ボスの登場演出の間は、映画のように画面をすっきりさせる（ミニマップ・体力などは隠す）
+	if (!isBossIntro) {
+		minimap.Draw();
+		buildHud.Draw();
+		inventoryHud.Draw();
+		hud.Draw();
+	}
 	warpMap.Draw(); // 大きなマップ（開いているときだけ）
 	if (warpPhase != WarpPhase::kNone) {
 		warpFlash->Draw(); // ワープの光
